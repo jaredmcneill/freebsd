@@ -49,6 +49,7 @@ __FBSDID("$FreeBSD$");
 struct a31_ccm_softc {
 	struct resource		*res;
 	int			pll6_enabled;
+	int			usb_enabled;
 };
 
 static struct a31_ccm_softc *a31_ccm_sc = NULL;
@@ -290,6 +291,82 @@ a31_clk_i2c_activate(int devid)
 	reg_value = ccm_read_4(sc, A31_CCM_APB2_RST);
 	reg_value |= A31_CCM_APB2_RST_TWI << devid;
 	ccm_write_4(sc, A31_CCM_APB2_RST, reg_value);
+
+	return (0);
+}
+
+int
+a31_clk_usb_activate(void)
+{
+	struct a31_ccm_softc *sc;
+	uint32_t reg_value;
+
+	sc = a31_ccm_sc;
+	if (sc == NULL)
+		return (ENXIO);
+	if (sc->usb_enabled)
+		return (0);
+
+	/* Enable USB PHY */
+	reg_value = ccm_read_4(sc, A31_CCM_USBPHY_CLK);
+	reg_value |= A31_CCM_USBPHY_CLK_GATING_OHCI0;
+	reg_value |= A31_CCM_USBPHY_CLK_GATING_OHCI1;
+	reg_value |= A31_CCM_USBPHY_CLK_GATING_USBPHY0;
+	reg_value |= A31_CCM_USBPHY_CLK_GATING_USBPHY1;
+	reg_value |= A31_CCM_USBPHY_CLK_GATING_USBPHY2;
+	reg_value |= A31_CCM_USBPHY_CLK_USBPHY1_RST;
+	reg_value |= A31_CCM_USBPHY_CLK_USBPHY2_RST;
+	ccm_write_4(sc, A31_CCM_USBPHY_CLK, reg_value);
+
+	/* Gating AHB clock for USB */
+	reg_value = ccm_read_4(sc, A31_CCM_AHB_GATING0);
+	reg_value |= A31_CCM_AHB_GATING_USBDRD;
+	reg_value |= A31_CCM_AHB_GATING_EHCI0;
+	reg_value |= A31_CCM_AHB_GATING_EHCI1;
+	reg_value |= A31_CCM_AHB_GATING_OHCI0;
+	reg_value |= A31_CCM_AHB_GATING_OHCI1;
+	ccm_write_4(sc, A31_CCM_AHB_GATING0, reg_value);
+
+	/* De-assert reset */
+	reg_value = ccm_read_4(sc, A31_CCM_AHB1_RST_REG0);
+	reg_value |= A31_CCM_AHB1_RST_REG0_OHCI0;
+	reg_value |= A31_CCM_AHB1_RST_REG0_OHCI1;
+	reg_value |= A31_CCM_AHB1_RST_REG0_EHCI0;
+	reg_value |= A31_CCM_AHB1_RST_REG0_EHCI1;
+	ccm_write_4(sc, A31_CCM_AHB1_RST_REG0, reg_value);
+
+	sc->usb_enabled = 1;
+
+	return (0);
+}
+
+int
+a31_clk_usb_deactivate(void)
+{
+	struct a31_ccm_softc *sc;
+	uint32_t reg_value;
+
+	sc = a31_ccm_sc;
+	if (sc == NULL)
+		return (ENXIO);
+	if (!sc->usb_enabled)
+		return (0);
+
+	/* Disable USB PHY */
+	reg_value = ccm_read_4(sc, A31_CCM_USBPHY_CLK);
+	reg_value &= ~A31_CCM_USBPHY_CLK_USBPHY1_RST;
+	reg_value &= ~A31_CCM_USBPHY_CLK_USBPHY2_RST;
+	ccm_write_4(sc, A31_CCM_USBPHY_CLK, reg_value);
+
+	/* Assert reset */
+	reg_value = ccm_read_4(sc, A31_CCM_AHB1_RST_REG0);
+	reg_value &= ~A31_CCM_AHB1_RST_REG0_OHCI0;
+	reg_value &= ~A31_CCM_AHB1_RST_REG0_OHCI1;
+	reg_value &= ~A31_CCM_AHB1_RST_REG0_EHCI0;
+	reg_value &= ~A31_CCM_AHB1_RST_REG0_EHCI1;
+	ccm_write_4(sc, A31_CCM_AHB1_RST_REG0, reg_value);
+
+	sc->usb_enabled = 0;
 
 	return (0);
 }
