@@ -47,8 +47,7 @@ __FBSDID("$FreeBSD$");
 #include "gpio_if.h"
 
 #define	USBPHY_NUMOFF		3
-#define	GPIO_PIN(buf)		((buf)[1] * 32 + (buf)[2])
-#define	GPIO_POLARITY(buf)	(((buf)[3] & 1) ? GPIO_PIN_LOW : GPIO_PIN_HIGH)
+#define	GPIO_POLARITY(flags)	(((flags) & 1) ? GPIO_PIN_LOW : GPIO_PIN_HIGH)
 
 static struct ofw_compat_data compat_data[] = {
 	{ "allwinner,sun4i-a10-usb-phy",	1 },
@@ -62,9 +61,11 @@ static int
 awusbphy_gpio_set(device_t dev, phandle_t node, const char *pname)
 {
 	pcell_t gpio_prop[4];
+	phandle_t gpio_node;
 	device_t gpio_dev;
+	uint32_t pin, flags;
 	ssize_t len;
-	int pin, val;
+	int val;
 
 	len = OF_getencprop(node, pname, gpio_prop, sizeof(gpio_prop));
 	if (len == -1)
@@ -76,6 +77,7 @@ awusbphy_gpio_set(device_t dev, phandle_t node, const char *pname)
 		return (ENXIO);
 	}
 
+	gpio_node = OF_node_from_xref(gpio_prop[0]);
 	gpio_dev = OF_device_from_xref(gpio_prop[0]);
 	if (gpio_dev == NULL) {
 		device_printf(dev, "failed to get the GPIO device for %s\n",
@@ -83,8 +85,15 @@ awusbphy_gpio_set(device_t dev, phandle_t node, const char *pname)
 		return (ENOENT);
 	}
 
-	pin = GPIO_PIN(gpio_prop);
-	val = GPIO_POLARITY(gpio_prop);
+	if (GPIO_MAP_GPIOS(gpio_dev, node, gpio_node,
+	    sizeof(gpio_prop) / sizeof(gpio_prop[0]) - 1, gpio_prop + 1,
+	    &pin, &flags) != 0) {
+		device_printf(dev, "failed to map the GPIO pin for %s\n",
+		    pname);
+		return (ENXIO);
+	}
+
+	val = GPIO_POLARITY(flags);
 
 	GPIO_PIN_SETFLAGS(gpio_dev, pin, GPIO_PIN_OUTPUT);
 	GPIO_PIN_SET(gpio_dev, pin, val);
