@@ -207,7 +207,7 @@ int a31_clk_gmac_activate(phandle_t);
 int a31_clk_mmc_activate(int);
 int a31_clk_mmc_cfg(int, int);
 int a31_clk_i2c_activate(int);
-int a31_clk_usb_activate(void);
-int a31_clk_usb_deactivate(void);
+int a31_clk_ehci_activate(void);
+int a31_clk_ehci_deactivate(void);
 
 #endif /* _A31_CLK_H_ */

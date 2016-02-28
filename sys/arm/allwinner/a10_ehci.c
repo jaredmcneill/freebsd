@@ -106,8 +106,8 @@ static const struct aw_ehci_conf a10_ehci_conf = {
 
 static const struct aw_ehci_conf a31_ehci_conf = {
 #if defined(SOC_ALLWINNER_A31) || defined(SOC_ALLWINNER_A31S)
-	.clk_activate = a31_clk_usb_activate,
-	.clk_deactivate = a31_clk_usb_deactivate,
+	.clk_activate = a31_clk_ehci_activate,
+	.clk_deactivate = a31_clk_ehci_deactivate,
 #endif
 };
 
