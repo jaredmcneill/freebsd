@@ -76,7 +76,7 @@ __FBSDID("$FreeBSD$");
 #define SW_AHB_INCR8			(1 << 10)
 
 #define	USB_CONF(d)			\
-	(void *)(uintptr_t)ofw_bus_search_compatible((d), compat_data)->ocd_data
+	(void *)ofw_bus_search_compatible((d), compat_data)->ocd_data
 
 #define A10_READ_4(sc, reg)		\
 	bus_space_read_4((sc)->sc_io_tag, (sc)->sc_io_hdl, reg)
