@@ -18,6 +18,7 @@ arm/allwinner/axp209.c			optional	axp209
 arm/allwinner/if_emac.c			optional	emac
 arm/allwinner/sunxi_dma_if.m		standard
 dev/iicbus/twsi/a10_twsi.c		optional	twsi
+arm/allwinner/aw_p2wi.c			optional	p2wi
 #arm/allwinner/console.c		standard
 
 arm/allwinner/a10_fb.c			optional	vt
