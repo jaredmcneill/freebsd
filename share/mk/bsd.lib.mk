@@ -235,7 +235,6 @@ ${SHLIB_NAME_FULL}: beforelinking
 ${SHLIB_LINK:R}.ld: ${.CURDIR}/${SHLIB_LDSCRIPT}
 	sed -e 's,@@SHLIB@@,${_LDSCRIPTROOT}${_SHLIBDIR}/${SHLIB_NAME},g' \
 	    -e 's,@@LIBDIR@@,${_LDSCRIPTROOT}${_LIBDIR},g' \
-	    -e 's,/[^ ]*/,,g' \
 	    ${.ALLSRC} > ${.TARGET}
 
 ${SHLIB_NAME_FULL}: ${SHLIB_LINK:R}.ld
@@ -339,6 +338,9 @@ _SHLINSTALLFLAGS:=	${_SHLINSTALLFLAGS${ie}}
 .if !defined(INTERNALLIB)
 realinstall: _libinstall
 .ORDER: beforeinstall _libinstall
+.if target(${SHLIB_LINK:R}.ld)
+_libinstall: ${SHLIB_LINK:R}.ld
+.endif
 _libinstall:
 .if defined(LIB) && !empty(LIB) && ${MK_INSTALLLIB} != "no"
 	${INSTALL} -C -o ${LIBOWN} -g ${LIBGRP} -m ${LIBMODE} \
@@ -365,6 +367,7 @@ _libinstall:
 	${INSTALL} -S -C -o ${LIBOWN} -g ${LIBGRP} -m ${LIBMODE} \
 	    ${_INSTALLFLAGS} ${SHLIB_LINK:R}.ld \
 	    ${DESTDIR}${_LIBDIR}/${SHLIB_LINK}
+	rm -f ${SHLIB_LINK:R}.ld
 .for _SHLIB_LINK_LINK in ${SHLIB_LDSCRIPT_LINKS}
 	${INSTALL_SYMLINK} ${SHLIB_LINK} ${DESTDIR}${_LIBDIR}/${_SHLIB_LINK_LINK}
 .endfor
@@ -432,19 +435,19 @@ OBJS_DEPEND_GUESS.${_S:R}.So=	${_S}
 
 .include <bsd.dep.mk>
 
-.if defined(LIB) && !empty(LIB)
 .if ${MK_FAST_DEPEND} == "no" && !exists(${.OBJDIR}/${DEPENDFILE})
+.if defined(LIB) && !empty(LIB)
 ${OBJS} ${STATICOBJS} ${POBJS}: ${OBJS_DEPEND_GUESS}
 .for _S in ${SRCS:N*.[hly]}
 ${_S:R}.po: ${OBJS_DEPEND_GUESS.${_S:R}.po}
 .endfor
+.endif
 .if defined(SHLIB_NAME) || \
     defined(INSTALL_PIC_ARCHIVE) && defined(LIB) && !empty(LIB)
 ${SOBJS}: ${OBJS_DEPEND_GUESS}
 .for _S in ${SRCS:N*.[hly]}
 ${_S:R}.So: ${OBJS_DEPEND_GUESS.${_S:R}.So}
 .endfor
-.endif
 .endif
 .endif
 
