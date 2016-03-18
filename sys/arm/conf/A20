@@ -61,6 +61,13 @@ device		gic
 # ARM Generic Timer
 device		generic_timer
 
+# EXT_RESOURCES pseudo devices
+options		EXT_RESOURCES
+device		clk
+device		phy
+device		hwreset
+device		regulator
+
 # MMC/SD/SDIO Card slot support
 device		mmc			# mmc/sd bus
 device		mmcsd			# mmc/sd flash cards
