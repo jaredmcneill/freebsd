@@ -408,34 +408,22 @@ aw_pll_create(device_t dev, bus_addr_t paddr, struct clkdom *clkdom,
     const char *clkname, int index)
 {
 	struct clknode_init_def clkdef;
-	phandle_t parent, *cells;
 	struct aw_pll_sc *sc;
 	struct clknode *clk;
-	const char *pname;
-	int error, ncells;
-	device_t pdev;
+	clk_t clk_parent;
+	int error;
 
 	memset(&clkdef, 0, sizeof(clkdef));
 	clkdef.id = index;
 	clkdef.name = clkname;
 	
-	error = ofw_bus_parse_xref_list_alloc(ofw_bus_get_node(dev),
-	    "clocks", "#clock-cells", index, &parent, &ncells, &cells);
+	error = clk_get_by_ofw_name(dev, "clocks", &clk_parent);
 	if (error != 0) {
 		device_printf(dev, "cannot parse clock parent\n");
 		return (ENXIO);
 	}
-	pdev = OF_device_from_xref(parent);
-	if (pdev == NULL) {
-		device_printf(dev, "cannot find parent clock device\n");
-		return (ENXIO);
-	}
-	error = clk_parse_ofw_clk_name(pdev, parent, &pname);
-	if (error != 0) {
-		device_printf(dev, "cannot parse parent clock name\n");
-		return (ENXIO);
-	}
-	clkdef.parent_names = &pname;
+	clkdef.parent_names = malloc(sizeof(char *), M_OFWPROP, M_WAITOK);
+	clkdef.parent_names[0] = clk_get_name(clk_parent);
 	clkdef.parent_cnt = 1;
 
 	clk = clknode_create(clkdom, &aw_pll_clknode_class, &clkdef);
