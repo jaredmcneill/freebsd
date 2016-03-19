@@ -32,18 +32,37 @@ INTERFACE clkdev;
 
 CODE {
 	#include <sys/systm.h>
+	#include <sys/bus.h>
+	static int
+	clkdev_default_write_4(device_t dev, bus_addr_t addr, uint32_t val)
+	{
+		return (CLKDEV_WRITE_4(device_get_parent(dev), addr, val));
+	}
+
+	static int
+	clkdev_default_read_4(device_t dev, bus_addr_t addr, uint32_t *val)
+	{
+		return (CLKDEV_READ_4(device_get_parent(dev), addr, val));
+	}
+
+	static int
+	clkdev_default_modify_4(device_t dev, bus_addr_t addr,
+	    uint32_t clear_mask, uint32_t set_mask)
+	{
+		return (CLKDEV_MODIFY_4(device_get_parent(dev), addr,
+		    clear_mask, set_mask));
+	}
+
 	static void
 	clkdev_default_device_lock(device_t dev)
 	{
-
-		panic("clkdev_device_lock() is not implemented");
+		CLKDEV_DEVICE_LOCK(device_get_parent(dev));
 	}
 
 	static void
 	clkdev_default_device_unlock(device_t dev)
 	{
-
-		panic("clkdev_device_unlock() is not implemented");
+		CLKDEV_DEVICE_UNLOCK(device_get_parent(dev));
 	}
 }
 
@@ -54,7 +73,7 @@ METHOD int write_4 {
 	device_t	dev;
 	bus_addr_t	addr;
 	uint32_t	val;
-};
+} DEFAULT clkdev_default_write_4;
 
 #
 # Read single register
@@ -63,7 +82,7 @@ METHOD int read_4 {
 	device_t	dev;
 	bus_addr_t	addr;
 	uint32_t	*val;
-};
+} DEFAULT clkdev_default_read_4;
 
 #
 # Modify single register
@@ -73,7 +92,7 @@ METHOD int modify_4 {
 	bus_addr_t	addr;
 	uint32_t	clear_mask;
 	uint32_t	set_mask;
-};
+} DEFAULT clkdev_default_modify_4;
 
 #
 # Get exclusive access to underlying device
