@@ -43,10 +43,13 @@ __FBSDID("$FreeBSD$");
 
 #include <dev/ofw/ofw_bus.h>
 #include <dev/ofw/ofw_bus_subr.h>
+#include <dev/ofw/ofw_subr.h>
 
 #include <dev/extres/clk/clk.h>
 
 #include <dt-bindings/clock/sun4i-a10-pll2.h>
+
+#include "clkdev_if.h"
 
 #define	AW_PLL_ENABLE			(1 << 31)
 
@@ -105,7 +108,8 @@ enum aw_pll_type {
 
 struct aw_pll_sc {
 	enum aw_pll_type	type;
-	struct resource		*res;
+	device_t		clkdev;
+	bus_addr_t		reg;
 	int			id;
 };
 
@@ -114,15 +118,19 @@ struct aw_pll_funcs {
 	int	(*set_freq)(struct aw_pll_sc *, uint64_t, uint64_t *, int);
 };
 
-#define	PLL_CFG_READ(sc)	bus_read_4((sc)->res, 0)
-#define	PLL_CFG_WRITE(sc, val)	bus_write_4((sc)->res, 0, (val))
+#define	PLL_READ(sc, val)	CLKDEV_READ_4((sc)->clkdev, (sc)->reg, (val))
+#define	PLL_WRITE(sc, val)	CLKDEV_WRITE_4((sc)->clkdev, (sc)->reg, (val))
+#define	DEVICE_LOCK(sc)		CLKDEV_DEVICE_LOCK((sc)->clkdev)
+#define	DEVICE_UNLOCK(sc)	CLKDEV_DEVICE_UNLOCK((sc)->clkdev)
 
 static int
 a10_pll1_recalc(struct aw_pll_sc *sc, uint64_t *freq)
 {
 	uint32_t val, m, n, k, p;
 
-	val = PLL_CFG_READ(sc);
+	DEVICE_LOCK(sc);
+	PLL_READ(sc, &val);
+	DEVICE_UNLOCK(sc);
 
 	p = 1 << ((val & A10_PLL1_OUT_EXT_DIVP) >> A10_PLL1_OUT_EXT_DIVP_SHIFT);
 	m = ((val & A10_PLL1_FACTOR_M) >> A10_PLL1_FACTOR_M_SHIFT) + 1;
@@ -141,7 +149,9 @@ a10_pll2_recalc(struct aw_pll_sc *sc, uint64_t *freq)
 {
 	uint32_t val, post_div, n, pre_div;
 
-	val = PLL_CFG_READ(sc);
+	DEVICE_LOCK(sc);
+	PLL_READ(sc, &val);
+	DEVICE_UNLOCK(sc);
 
 	post_div = (val & A10_PLL2_POST_DIV) >> A10_PLL2_POST_DIV_SHIFT;
 	if (post_div == 0)
@@ -197,12 +207,14 @@ a10_pll2_set_freq(struct aw_pll_sc *sc, uint64_t fin, uint64_t *fout,
 	post_div = 4;
 	n = (*fout * pre_div * post_div * 2) / (2 * fin);
 
-	val = PLL_CFG_READ(sc);
+	DEVICE_LOCK(sc);
+	PLL_READ(sc, &val);
 	val &= ~(A10_PLL2_POST_DIV | A10_PLL2_FACTOR_N | A10_PLL2_PRE_DIV);
 	val |= (post_div << A10_PLL2_POST_DIV_SHIFT);
 	val |= (n << A10_PLL2_FACTOR_N_SHIFT);
 	val |= (pre_div << A10_PLL2_PRE_DIV_SHIFT);
-	PLL_CFG_WRITE(sc, val);
+	PLL_WRITE(sc, val);
+	DEVICE_UNLOCK(sc);
 
 	return (0);
 }
@@ -212,7 +224,9 @@ a10_pll5_recalc(struct aw_pll_sc *sc, uint64_t *freq)
 {
 	uint32_t val, m, n, k, p;
 
-	val = PLL_CFG_READ(sc);
+	DEVICE_LOCK(sc);
+	PLL_READ(sc, &val);
+	DEVICE_UNLOCK(sc);
 
 	p = 1 << ((val & A10_PLL5_OUT_EXT_DIVP) >> A10_PLL5_OUT_EXT_DIVP_SHIFT);
 	m = ((val & A10_PLL5_FACTOR_M) >> A10_PLL5_FACTOR_M_SHIFT) + 1;
@@ -240,7 +254,9 @@ a10_pll6_recalc(struct aw_pll_sc *sc, uint64_t *freq)
 {
 	uint32_t val, m, k, n;
 
-	val = PLL_CFG_READ(sc);
+	DEVICE_LOCK(sc);
+	PLL_READ(sc, &val);
+	DEVICE_UNLOCK(sc);
 
 	m = ((val & A10_PLL6_FACTOR_M) >> A10_PLL6_FACTOR_M_SHIFT) + 1;
 	k = ((val & A10_PLL6_FACTOR_K) >> A10_PLL6_FACTOR_K_SHIFT) + 1;
@@ -287,14 +303,16 @@ a10_pll6_set_freq(struct aw_pll_sc *sc, uint64_t fin, uint64_t *fout,
 	m = n = 1;
 	k = 25;
 
-	val = PLL_CFG_READ(sc);
+	DEVICE_LOCK(sc);
+	PLL_READ(sc, &val);
 	val &= ~(A10_PLL6_FACTOR_N | A10_PLL6_FACTOR_K | A10_PLL6_FACTOR_M);
 	val &= ~A10_PLL6_BYPASS_EN;
 	val |= A10_PLL6_SATA_CLK_EN;
 	val |= (n << A10_PLL6_FACTOR_N_SHIFT);
 	val |= (k << A10_PLL6_FACTOR_K_SHIFT);
 	val |= (m << A10_PLL6_FACTOR_M_SHIFT);
-	PLL_CFG_WRITE(sc, val);
+	PLL_WRITE(sc, val);
+	DEVICE_UNLOCK(sc);
 
 	return (0);
 }
@@ -307,11 +325,6 @@ static struct aw_pll_funcs aw_pll_func[] = {
 	PLL(AWPLL_A10_PLL2, a10_pll2_recalc, a10_pll2_set_freq),
 	PLL(AWPLL_A10_PLL5, a10_pll5_recalc, NULL),
 	PLL(AWPLL_A10_PLL6, a10_pll6_recalc, a10_pll6_set_freq),
-};
-
-static struct resource_spec aw_pll_spec[] = {
-	{ SYS_RES_MEMORY,	0,	RF_ACTIVE },
-	{ -1, 0 }
 };
 
 static struct ofw_compat_data compat_data[] = {
@@ -337,12 +350,14 @@ aw_pll_set_gate(struct clknode *clk, bool enable)
 
 	sc = clknode_get_softc(clk);
 
-	val = PLL_CFG_READ(sc);
+	DEVICE_LOCK(sc);
+	PLL_READ(sc, &val);
 	if (enable)
 		val |= AW_PLL_ENABLE;
 	else
 		val &= ~AW_PLL_ENABLE;
-	PLL_CFG_WRITE(sc, val);
+	PLL_WRITE(sc, val);
+	DEVICE_UNLOCK(sc);
 
 	return (0);
 }
@@ -389,7 +404,7 @@ DEFINE_CLASS_1(aw_pll_clknode, aw_pll_clknode_class, aw_pll_clknode_methods,
     sizeof(struct aw_pll_sc), clknode_class);
 
 static int
-aw_pll_create(device_t dev, struct resource *res, struct clkdom *clkdom,
+aw_pll_create(device_t dev, bus_addr_t paddr, struct clkdom *clkdom,
     const char *clkname, int index)
 {
 	struct clknode_init_def clkdef;
@@ -429,8 +444,9 @@ aw_pll_create(device_t dev, struct resource *res, struct clkdom *clkdom,
 		return (ENXIO);
 	}
 	sc = clknode_get_softc(clk);
+	sc->clkdev = device_get_parent(dev);
 	sc->type = ofw_bus_search_compatible(dev, compat_data)->ocd_data;
-	sc->res = res;
+	sc->reg = paddr;
 	sc->id = clkdef.id;
 
 	clknode_register(clkdom, clk);
@@ -457,20 +473,21 @@ aw_pll_probe(device_t dev)
 static int
 aw_pll_attach(device_t dev)
 {
-	struct resource *res;
 	struct clkdom *clkdom;
 	const char **names;
 	int index, nout, error;
 	uint32_t indices;
+	bus_addr_t paddr;
+	bus_size_t psize;
+	phandle_t node;
 
-	res = NULL;
+	node = ofw_bus_get_node(dev);
+	clkdom = clkdom_get_by_dev(device_get_parent(dev));
 
-	if (bus_alloc_resources(dev, aw_pll_spec, &res) != 0) {
-		device_printf(dev, "cannot allocate resources\n");
+	if (ofw_reg_to_paddr(node, 0, &paddr, &psize, NULL) != 0) {
+		device_printf(dev, "couldn't parse 'reg' property\n");
 		return (ENXIO);
 	}
-
-	clkdom = clkdom_create(dev);
 
 	nout = clk_parse_ofw_out_names(dev, ofw_bus_get_node(dev), &names, 
 	    &indices);
@@ -481,25 +498,14 @@ aw_pll_attach(device_t dev)
 	}
 
 	for (index = 0; index < nout; index++) {
-		error = aw_pll_create(dev, res, clkdom, names[index], index);
+		error = aw_pll_create(dev, paddr, clkdom, names[index], index);
 		if (error)
 			goto fail;
 	}
 
-	error = clkdom_finit(clkdom);
-	if (error != 0) {
-		device_printf(dev, "cannot finalize clkdom initialization\n");
-		error = ENXIO;
-		goto fail;
-	}
-
-	if (bootverbose)
-		clkdom_dump(clkdom);
-
 	return (0);
 
 fail:
-	bus_release_resources(dev, aw_pll_spec, &res);
 	return (error);
 }
 

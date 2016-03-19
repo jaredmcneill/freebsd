@@ -43,6 +43,7 @@ __FBSDID("$FreeBSD$");
 
 #include <dev/ofw/ofw_bus.h>
 #include <dev/ofw/ofw_bus_subr.h>
+#include <dev/ofw/ofw_subr.h>
 
 #include <dev/extres/clk/clk_mux.h>
 
@@ -51,70 +52,7 @@ __FBSDID("$FreeBSD$");
 #define	AHB_CLK_SRC_SEL_WIDTH	2
 #define	AHB_CLK_SRC_SEL_SHIFT	6
 
-struct aw_ahbclk_softc {
-	struct resource		*res;
-	struct mtx		mtx;
-};
-
-struct resource_spec aw_ahbclk_spec[] = {
-	{ SYS_RES_MEMORY,	0,	RF_ACTIVE },
-	{ -1, 0 }
-};
-
 static const char *aw_ahbclk_srcs[] = { "axi", "pll6_div_4", "pll6_other" };
-
-static int
-aw_ahbclk_write_4(device_t dev, bus_addr_t addr, uint32_t val)
-{
-	struct aw_ahbclk_softc *sc;
-
-	sc = device_get_softc(dev);
-	bus_write_4(sc->res, addr, val);
-
-	return (0);
-}
-
-static int
-aw_ahbclk_read_4(device_t dev, bus_addr_t addr, uint32_t *val)
-{
-	struct aw_ahbclk_softc *sc;
-
-	sc = device_get_softc(dev);
-	*val = bus_read_4(sc->res, addr);
-
-	return (0);
-}
-
-static int
-aw_ahbclk_modify_4(device_t dev, bus_addr_t addr, uint32_t clr, uint32_t set)
-{
-	struct aw_ahbclk_softc *sc;
-	uint32_t val;
-
-	sc = device_get_softc(dev);
-	val = bus_read_4(sc->res, addr);
-	bus_write_4(sc->res, addr, (val & ~clr) | set);
-
-	return (0);
-}
-
-static void
-aw_ahbclk_device_lock(device_t dev)
-{
-	struct aw_ahbclk_softc *sc;
-
-	sc = device_get_softc(dev);
-	mtx_lock(&sc->mtx);
-}
-
-static void
-aw_ahbclk_device_unlock(device_t dev)
-{
-	struct aw_ahbclk_softc *sc;
-
-	sc = device_get_softc(dev);
-	mtx_unlock(&sc->mtx);
-}
 
 static int
 aw_ahbclk_probe(device_t dev)
@@ -132,28 +70,26 @@ aw_ahbclk_probe(device_t dev)
 static int
 aw_ahbclk_attach(device_t dev)
 {
-	struct aw_ahbclk_softc *sc;
 	struct clk_mux_def def;
 	struct clkdom *clkdom;
+	bus_addr_t paddr;
+	bus_size_t psize;
 	phandle_t node;
 	int error;
 
-	clkdom = NULL;
 	node = ofw_bus_get_node(dev);
-	sc = device_get_softc(dev);
+	clkdom = clkdom_get_by_dev(device_get_parent(dev));
 
-	if (bus_alloc_resources(dev, aw_ahbclk_spec, &sc->res) != 0) {
-		device_printf(dev, "cannot allocate resources\n");
+	if (ofw_reg_to_paddr(node, 0, &paddr, &psize, NULL) != 0) {
+		device_printf(dev, "cannot parse 'reg' property\n");
 		return (ENXIO);
 	}
-
-	clkdom = clkdom_create(dev);
 
 	memset(&def, 0, sizeof(def));
 	def.clkdef.id = 0;
 	def.clkdef.parent_names = aw_ahbclk_srcs;
 	def.clkdef.parent_cnt = nitems(aw_ahbclk_srcs);
-	def.offset = 0;
+	def.offset = paddr;
 	def.shift = AHB_CLK_SRC_SEL_SHIFT;
 	def.width = AHB_CLK_SRC_SEL_WIDTH;
 
@@ -171,23 +107,12 @@ aw_ahbclk_attach(device_t dev)
 		goto fail;
 	}
 
-	error = clkdom_finit(clkdom);
-	if (error != 0) {
-		device_printf(dev, "cannot finalize clkdom initialization\n");
-		error = ENXIO;
-		goto fail;
-	}
-
 	free(__DECONST(char *, def.clkdef.name), M_OFWPROP);
-
-	if (bootverbose)
-		clkdom_dump(clkdom);
 
 	return (0);
 
 fail:
 	free(__DECONST(char *, def.clkdef.name), M_OFWPROP);
-	bus_release_resources(dev, aw_ahbclk_spec, &sc->res);
 	return (error);
 }
 
@@ -196,20 +121,13 @@ static device_method_t aw_ahbclk_methods[] = {
 	DEVMETHOD(device_probe,		aw_ahbclk_probe),
 	DEVMETHOD(device_attach,	aw_ahbclk_attach),
 
-	/* clkdev interface */
-	DEVMETHOD(clkdev_write_4,	aw_ahbclk_write_4),
-	DEVMETHOD(clkdev_read_4,	aw_ahbclk_read_4),
-	DEVMETHOD(clkdev_modify_4,	aw_ahbclk_modify_4),
-	DEVMETHOD(clkdev_device_lock,	aw_ahbclk_device_lock),
-	DEVMETHOD(clkdev_device_unlock,	aw_ahbclk_device_unlock),
-
 	DEVMETHOD_END
 };
 
 static driver_t aw_ahbclk_driver = {
 	"aw_ahbclk",
 	aw_ahbclk_methods,
-	sizeof(struct aw_ahbclk_softc),
+	0
 };
 
 static devclass_t aw_ahbclk_devclass;

@@ -67,7 +67,7 @@ aw_oscclk_attach(device_t dev)
 	uint32_t freq;
 	int error;
 
-	clkdom = NULL;
+	clkdom = clkdom_get_by_dev(device_get_parent(dev));
 	node = ofw_bus_get_node(dev);
 
 	if (OF_getencprop(node, "clock-frequency", &freq,  sizeof(freq)) <= 0) {
@@ -75,8 +75,6 @@ aw_oscclk_attach(device_t dev)
 		error = ENXIO;
 		goto fail;
 	}
-
-	clkdom = clkdom_create(dev);
 
 	memset(&def, 0, sizeof(def));
 	def.clkdef.id = 0;
@@ -95,17 +93,7 @@ aw_oscclk_attach(device_t dev)
 		goto fail;
 	}
 
-	error = clkdom_finit(clkdom);
-	if (error != 0) {
-		device_printf(dev, "cannot finalize clkdom initialization\n");
-		error = ENXIO;
-		goto fail;
-	}
-
 	free(__DECONST(char *, def.clkdef.name), M_OFWPROP);
-
-	if (bootverbose)
-		clkdom_dump(clkdom);
 
 	return (0);
 
