@@ -79,7 +79,7 @@ aw_oscclk_attach(device_t dev)
 	clkdom = clkdom_create(dev);
 
 	memset(&def, 0, sizeof(def));
-	def.clkdef.id = 1;
+	def.clkdef.id = 0;
 	def.freq = freq;
 	error = clk_parse_ofw_clk_name(dev, node, &def.clkdef.name);
 	if (error != 0) {
