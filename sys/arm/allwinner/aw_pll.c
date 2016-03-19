@@ -470,12 +470,13 @@ aw_pll_attach(device_t dev)
 	phandle_t node;
 
 	node = ofw_bus_get_node(dev);
-	clkdom = clkdom_get_by_dev(device_get_parent(dev));
 
 	if (ofw_reg_to_paddr(node, 0, &paddr, &psize, NULL) != 0) {
 		device_printf(dev, "couldn't parse 'reg' property\n");
 		return (ENXIO);
 	}
+
+	clkdom = clkdom_create(dev);
 
 	nout = clk_parse_ofw_out_names(dev, ofw_bus_get_node(dev), &names, 
 	    &indices);
@@ -490,6 +491,15 @@ aw_pll_attach(device_t dev)
 		if (error)
 			goto fail;
 	}
+
+	if (clkdom_finit(clkdom) != 0) {
+		device_printf(dev, "cannot finalize clkdom initialization\n");
+		error = ENXIO;
+		goto fail;
+	}
+
+	if (bootverbose)
+		clkdom_dump(clkdom);
 
 	return (0);
 

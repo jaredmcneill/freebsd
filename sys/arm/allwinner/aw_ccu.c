@@ -167,7 +167,6 @@ static int
 aw_ccu_attach(device_t dev)
 {
 	struct aw_ccu_softc *sc;
-	struct clkdom *clkdom;
 	phandle_t node, child;
 	device_t cdev;
 	int error;
@@ -188,9 +187,6 @@ aw_ccu_attach(device_t dev)
 
 	mtx_init(&sc->mtx, device_get_nameunit(dev), NULL, MTX_DEF);
 
-	/* Create a single clock domain to share with all child devices */
-	clkdom = clkdom_create(dev);
-
 	/* Attach child devices */
 	for (child = OF_child(node); child > 0; child = OF_peer(child)) {
 		cdev = simplebus_add_device(dev, child, 0, NULL, -1, NULL);
@@ -198,22 +194,7 @@ aw_ccu_attach(device_t dev)
 			device_probe_and_attach(cdev);
 	}
 
-	/* Finalize clock domain initialization */
-	error = clkdom_finit(clkdom);
-	if (error != 0) {
-		device_printf(dev, "cannot finalize clkdom initialization\n");
-		error = ENXIO;
-		goto fail;
-	}
-
-	if (bootverbose)
-		clkdom_dump(clkdom);
-
 	return (bus_generic_attach(dev));
-
-fail:
-	bus_space_unmap(sc->bst, sc->bsh, CCU_SIZE);
-	return (error);
 }
 
 static device_method_t aw_ccu_methods[] = {

@@ -47,8 +47,6 @@ __FBSDID("$FreeBSD$");
 
 #include <dev/extres/clk/clk_mux.h>
 
-#include "clkdev_if.h"
-
 #define	AHB_CLK_SRC_SEL_WIDTH	2
 #define	AHB_CLK_SRC_SEL_SHIFT	6
 
@@ -78,12 +76,13 @@ aw_ahbclk_attach(device_t dev)
 	int error;
 
 	node = ofw_bus_get_node(dev);
-	clkdom = clkdom_get_by_dev(device_get_parent(dev));
 
 	if (ofw_reg_to_paddr(node, 0, &paddr, &psize, NULL) != 0) {
 		device_printf(dev, "cannot parse 'reg' property\n");
 		return (ENXIO);
 	}
+
+	clkdom = clkdom_create(dev);
 
 	memset(&def, 0, sizeof(def));
 	def.clkdef.id = 0;
@@ -108,6 +107,15 @@ aw_ahbclk_attach(device_t dev)
 	}
 
 	free(__DECONST(char *, def.clkdef.name), M_OFWPROP);
+
+	if (clkdom_finit(clkdom) != 0) {
+		device_printf(dev, "cannot finalize clkdom initialization\n");
+		error = ENXIO;
+		goto fail;
+	}
+
+	if (bootverbose)
+		clkdom_dump(clkdom);
 
 	return (0);
 
