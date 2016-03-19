@@ -464,7 +464,7 @@ aw_pll_attach(device_t dev)
 	struct clkdom *clkdom;
 	const char **names;
 	int index, nout, error;
-	uint32_t indices;
+	uint32_t *indices;
 	bus_addr_t paddr;
 	bus_size_t psize;
 	phandle_t node;

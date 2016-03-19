@@ -1272,7 +1272,7 @@ clk_get_by_ofw_name(device_t dev, const char *name, clk_t *clk)
  */
 int
 clk_parse_ofw_out_names(device_t dev, phandle_t node, const char ***out_names,
-	uint32_t *indices)
+	uint32_t **indices)
 {
 	int name_items, rv;
 
