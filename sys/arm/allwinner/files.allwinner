@@ -30,5 +30,6 @@ arm/allwinner/aw_ccu.c			standard
 arm/allwinner/aw_ahbclk.c		standard
 arm/allwinner/aw_gate.c			standard
 arm/allwinner/aw_modclk.c		standard
+arm/allwinner/aw_mmcclk.c		standard
 arm/allwinner/aw_oscclk.c		standard
 arm/allwinner/aw_pll.c			standard
