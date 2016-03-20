@@ -27,7 +27,7 @@
  */
 
 /*
- * Allwinner module clocks
+ * Allwinner AXI clock
  */
 
 #include <sys/cdefs.h>
@@ -50,165 +50,58 @@ __FBSDID("$FreeBSD$");
 
 #include "clkdev_if.h"
 
-#define	SCLK_GATING		(1 << 31)
-#define	CLK_SRC_SEL		(0x3 << 24)
-#define	CLK_SRC_SEL_SHIFT	24
-#define	CLK_SRC_SEL_MAX		0x3
-#define	CLK_RATIO_N		(0x3 << 16)
-#define	CLK_RATIO_N_SHIFT	16
-#define	CLK_RATIO_N_MAX		0x3
-#define	CLK_RATIO_M		(0x1f << 0)
-#define	CLK_RATIO_M_SHIFT	0
-#define	CLK_RATIO_M_MAX		0x1f
+#define	AXI_CLK_DIV_RATIO	(0x3 << 0)
 
 static struct ofw_compat_data compat_data[] = {
-	{ "allwinner,sun4i-a10-mod0-clk",	1 },
+	{ "allwinner,sun4i-a10-axi-clk",	1 },
 	{ NULL, 0 }
 };
 
-struct aw_modclk_sc {
+struct aw_axiclk_sc {
 	device_t	clkdev;
 	bus_addr_t	reg;
 };
 
-#define	MODCLK_READ(sc, val)	CLKDEV_READ_4((sc)->clkdev, (sc)->reg, (val))
-#define	MODCLK_WRITE(sc, val)	CLKDEV_WRITE_4((sc)->clkdev, (sc)->reg, (val))
+#define	AXICLK_READ(sc, val)	CLKDEV_READ_4((sc)->clkdev, (sc)->reg, (val))
+#define	AXICLK_WRITE(sc, val)	CLKDEV_WRITE_4((sc)->clkdev, (sc)->reg, (val))
 #define	DEVICE_LOCK(sc)		CLKDEV_DEVICE_LOCK((sc)->clkdev)
 #define	DEVICE_UNLOCK(sc)	CLKDEV_DEVICE_UNLOCK((sc)->clkdev)
 
 static int
-aw_modclk_init(struct clknode *clk, device_t dev)
+aw_axiclk_init(struct clknode *clk, device_t dev)
 {
-	struct aw_modclk_sc *sc;
-	uint32_t val, index;
-
-	sc = clknode_get_softc(clk);
-
-	DEVICE_LOCK(sc);
-	MODCLK_READ(sc, &val);
-	DEVICE_UNLOCK(sc);
-
-	index = (val & CLK_SRC_SEL) >> CLK_SRC_SEL_SHIFT;
-
-	clknode_init_parent_idx(clk, index);
+	clknode_init_parent_idx(clk, 0);
 	return (0);
 }
 
 static int
-aw_modclk_set_mux(struct clknode *clk, int index)
+aw_axiclk_recalc_freq(struct clknode *clk, uint64_t *freq)
 {
-	struct aw_modclk_sc *sc;
-	uint32_t val;
-
-	sc = clknode_get_softc(clk);
-
-	if (index < 0 || index >= CLK_SRC_SEL_MAX)
-		return (ERANGE);
-
-	DEVICE_LOCK(sc);
-	MODCLK_READ(sc, &val);
-	val &= ~CLK_SRC_SEL;
-	val |= (index << CLK_SRC_SEL_SHIFT);
-	MODCLK_WRITE(sc, val);
-	DEVICE_UNLOCK(sc);
-
-	return (0);
-}
-
-static int
-aw_modclk_set_gate(struct clknode *clk, bool enable)
-{
-	struct aw_modclk_sc *sc;
+	struct aw_axiclk_sc *sc;
 	uint32_t val;
 
 	sc = clknode_get_softc(clk);
 
 	DEVICE_LOCK(sc);
-	MODCLK_READ(sc, &val);
-	if (enable)
-		val |= SCLK_GATING;
-	else
-		val &= ~SCLK_GATING;
-	MODCLK_WRITE(sc, val);
+	AXICLK_READ(sc, &val);
 	DEVICE_UNLOCK(sc);
+
+	*freq = *freq / ((val & AXI_CLK_DIV_RATIO) + 1);
 
 	return (0);
 }
 
-static int
-aw_modclk_recalc_freq(struct clknode *clk, uint64_t *freq)
-{
-	struct aw_modclk_sc *sc;
-	uint32_t val, m, n;
-
-	sc = clknode_get_softc(clk);
-
-	DEVICE_LOCK(sc);
-	MODCLK_READ(sc, &val);
-	DEVICE_UNLOCK(sc);
-
-	n = 1 << ((val & CLK_RATIO_N) >> CLK_RATIO_N_SHIFT);
-	m = ((val & CLK_RATIO_M) >> CLK_RATIO_M_SHIFT) + 1;
-
-	*freq = *freq / n / m;
-
-	return (0);
-}
-
-static int
-aw_modclk_set_freq(struct clknode *clk, uint64_t fin, uint64_t *fout,
-    int flags, int *stop)
-{
-	struct aw_modclk_sc *sc;
-	uint32_t val, m, n, best_m, best_n;
-	uint64_t cur_freq;
-	int64_t best_diff, cur_diff;
-
-	sc = clknode_get_softc(clk);
-	best_n = best_m = 0;
-	best_diff = (int64_t)*fout; 
-
-	for (n = 0; n <= CLK_RATIO_N_MAX; n++)
-		for (m = 0; m <= CLK_RATIO_M_MAX; m++) {
-			cur_freq = fin / (1 << n) / (m + 1);
-			cur_diff = (int64_t)*fout - cur_freq;
-			if (cur_diff >= 0 && cur_diff < best_diff) {
-				best_diff = cur_diff;
-				best_m = m;
-				best_n = n;
-			}
-		}
-
-	if (best_diff == (int64_t)*fout)
-		return (ERANGE);
-
-	DEVICE_LOCK(sc);
-	MODCLK_READ(sc, &val);
-	val &= ~(CLK_RATIO_N | CLK_RATIO_M);
-	val |= (best_n << CLK_RATIO_N_SHIFT);
-	val |= (best_m << CLK_RATIO_M_SHIFT);
-	MODCLK_WRITE(sc, val);
-	DEVICE_UNLOCK(sc);
-
-	*fout = fin / (1 << best_n) / (best_m + 1);
-
-	return (0);
-}
-
-static clknode_method_t aw_modclk_clknode_methods[] = {
+static clknode_method_t aw_axiclk_clknode_methods[] = {
 	/* Device interface */
-	CLKNODEMETHOD(clknode_init,		aw_modclk_init),
-	CLKNODEMETHOD(clknode_set_gate,		aw_modclk_set_gate),
-	CLKNODEMETHOD(clknode_set_mux,		aw_modclk_set_mux),
-	CLKNODEMETHOD(clknode_recalc_freq,	aw_modclk_recalc_freq),
-	CLKNODEMETHOD(clknode_set_freq,		aw_modclk_set_freq),
+	CLKNODEMETHOD(clknode_init,		aw_axiclk_init),
+	CLKNODEMETHOD(clknode_recalc_freq,	aw_axiclk_recalc_freq),
 	CLKNODEMETHOD_END
 };
-DEFINE_CLASS_1(aw_modclk_clknode, aw_modclk_clknode_class,
-    aw_modclk_clknode_methods, sizeof(struct aw_modclk_sc), clknode_class);
+DEFINE_CLASS_1(aw_axiclk_clknode, aw_axiclk_clknode_class,
+    aw_axiclk_clknode_methods, sizeof(struct aw_axiclk_sc), clknode_class);
 
 static int
-aw_modclk_probe(device_t dev)
+aw_axiclk_probe(device_t dev)
 {
 	if (!ofw_bus_status_okay(dev))
 		return (ENXIO);
@@ -216,15 +109,15 @@ aw_modclk_probe(device_t dev)
 	if (ofw_bus_search_compatible(dev, compat_data)->ocd_data == 0)
 		return (ENXIO);
 
-	device_set_desc(dev, "Allwinner Module Clock");
+	device_set_desc(dev, "Allwinner AXI Clock");
 	return (BUS_PROBE_DEFAULT);
 }
 
 static int
-aw_modclk_attach(device_t dev)
+aw_axiclk_attach(device_t dev)
 {
 	struct clknode_init_def def;
-	struct aw_modclk_sc *sc;
+	struct aw_axiclk_sc *sc;
 	struct clkdom *clkdom;
 	struct clknode *clk;
 	clk_t clk_parent;
@@ -260,7 +153,7 @@ aw_modclk_attach(device_t dev)
 	def.parent_names[0] = clk_get_name(clk_parent);
 	def.parent_cnt = 1;
 
-	clk = clknode_create(clkdom, &aw_modclk_clknode_class, &def);
+	clk = clknode_create(clkdom, &aw_axiclk_clknode_class, &def);
 	if (clk == NULL) {
 		device_printf(dev, "cannot create clknode\n");
 		error = ENXIO;
@@ -288,21 +181,21 @@ fail:
 	return (error);
 }
 
-static device_method_t aw_modclk_methods[] = {
+static device_method_t aw_axiclk_methods[] = {
 	/* Device interface */
-	DEVMETHOD(device_probe,		aw_modclk_probe),
-	DEVMETHOD(device_attach,	aw_modclk_attach),
+	DEVMETHOD(device_probe,		aw_axiclk_probe),
+	DEVMETHOD(device_attach,	aw_axiclk_attach),
 
 	DEVMETHOD_END
 };
 
-static driver_t aw_modclk_driver = {
-	"aw_modclk",
-	aw_modclk_methods,
+static driver_t aw_axiclk_driver = {
+	"aw_axiclk",
+	aw_axiclk_methods,
 	0
 };
 
-static devclass_t aw_modclk_devclass;
+static devclass_t aw_axiclk_devclass;
 
-EARLY_DRIVER_MODULE(aw_modclk, simplebus, aw_modclk_driver,
-    aw_modclk_devclass, 0, 0, BUS_PASS_BUS + BUS_PASS_ORDER_MIDDLE);
+EARLY_DRIVER_MODULE(aw_axiclk, simplebus, aw_axiclk_driver,
+    aw_axiclk_devclass, 0, 0, BUS_PASS_BUS + BUS_PASS_ORDER_MIDDLE);

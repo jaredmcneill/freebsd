@@ -85,7 +85,7 @@ aw_ahbclk_attach(device_t dev)
 	clkdom = clkdom_create(dev);
 
 	memset(&def, 0, sizeof(def));
-	def.clkdef.id = 0;
+	def.clkdef.id = 1;
 	def.clkdef.parent_names = aw_ahbclk_srcs;
 	def.clkdef.parent_cnt = nitems(aw_ahbclk_srcs);
 	def.offset = paddr;

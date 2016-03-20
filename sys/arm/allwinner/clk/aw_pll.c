@@ -100,7 +100,7 @@ __FBSDID("$FreeBSD$");
 #define	CLKID_A10_PLL6_DIV_4		3
 
 enum aw_pll_type {
-	AWPLL_A10_PLL1,
+	AWPLL_A10_PLL1 = 1,
 	AWPLL_A10_PLL2,
 	AWPLL_A10_PLL5,
 	AWPLL_A10_PLL6,
@@ -276,6 +276,7 @@ a10_pll6_recalc(struct aw_pll_sc *sc, uint64_t *freq)
 		break;
 	case CLKID_A10_PLL6_DIV_4:
 		*freq = (*freq * n * k) / 4;
+		break;
 	default:
 		return (ENXIO);
 	}
@@ -414,7 +415,6 @@ aw_pll_create(device_t dev, bus_addr_t paddr, struct clkdom *clkdom,
 	memset(&clkdef, 0, sizeof(clkdef));
 	clkdef.id = index;
 	clkdef.name = clkname;
-	
 	clkdef.parent_names = malloc(sizeof(char *), M_OFWPROP, M_WAITOK);
 	clkdef.parent_names[0] = pclkname;
 	clkdef.parent_cnt = 1;
@@ -433,7 +433,6 @@ aw_pll_create(device_t dev, bus_addr_t paddr, struct clkdom *clkdom,
 	clknode_register(clkdom, clk);
 
 	free(__DECONST(char *, clkdef.parent_names), M_OFWPROP);
-	free(__DECONST(char *, clkdef.name), M_OFWPROP);
 
 	return (0);
 }
@@ -482,12 +481,13 @@ aw_pll_attach(device_t dev)
 	error = clk_get_by_ofw_index(dev, 0, &clk_parent);
 	if (error != 0) {
 		device_printf(dev, "cannot parse clock parent\n");
-		return (ENXIO);
+		return (error);
 	}
 
 	for (index = 0; index < nout; index++) {
 		error = aw_pll_create(dev, paddr, clkdom,
-		    clk_get_name(clk_parent), names[index], index);
+		    clk_get_name(clk_parent), names[index],
+		    nout == 1 ? 1 : index);
 		if (error)
 			goto fail;
 	}
