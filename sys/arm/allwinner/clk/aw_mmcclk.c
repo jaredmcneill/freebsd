@@ -226,7 +226,7 @@ aw_mmcclk_probe(device_t dev)
 	if (ofw_bus_search_compatible(dev, compat_data)->ocd_data == 0)
 		return (ENXIO);
 
-	device_set_desc(dev, "Allwinner Module Clock");
+	device_set_desc(dev, "Allwinner MMC Clock");
 	return (BUS_PROBE_DEFAULT);
 }
 
