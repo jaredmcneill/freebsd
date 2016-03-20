@@ -175,11 +175,6 @@ aw_usbclk_attach(device_t dev)
 		error = ENOENT;
 		goto fail;
 	}
-	if (indices == NULL) {
-		device_printf(dev, "no clock-indices property\n");
-		error = ENXIO;
-		goto fail;
-	}
 
 	error = clk_get_by_ofw_index(dev, 0, &clk_parent);
 	if (error != 0) {
@@ -189,7 +184,7 @@ aw_usbclk_attach(device_t dev)
 
 	for (index = 0; index < nout; index++) {
 		error = aw_usbclk_create(dev, sc->reg, clkdom,
-		    clk_get_name(clk_parent), names[index], indices[index]);
+		    clk_get_name(clk_parent), names[index], index);
 		if (error)
 			goto fail;
 	}
