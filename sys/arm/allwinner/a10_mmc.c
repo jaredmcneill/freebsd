@@ -832,9 +832,6 @@ a10_mmc_update_ios(device_t bus, device_t child)
 			return (error);
 
 		/* Set the MMC clock. */
-		error = clk_disable(sc->a10_clk_mmc);
-		if (error != 0)
-			return (error);
 		if (ios->clock <= CARD_ID_FREQUENCY) {
 			error = clk_set_parent_by_clk(sc->a10_clk_mmc,
 			    sc->a10_clk_osc);
