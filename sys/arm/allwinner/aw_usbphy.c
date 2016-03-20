@@ -44,6 +44,9 @@ __FBSDID("$FreeBSD$");
 #include <dev/ofw/ofw_bus.h>
 #include <dev/ofw/ofw_bus_subr.h>
 
+#include <dev/extres/clk/clk.h>
+#include <dev/extres/hwreset/hwreset.h>
+
 #include "gpio_if.h"
 
 #define	USBPHY_NUMOFF		3
@@ -123,9 +126,32 @@ awusbphy_init(device_t dev)
 	char pname[20];
 	phandle_t node;
 	int error, off;
+	hwreset_t rst;
+	clk_t clk;
 
 	node = ofw_bus_get_node(dev);
 
+	/* Enable clocks */
+	for (off = 0; clk_get_by_ofw_index(dev, off, &clk) == 0; off++) {
+		error = clk_enable(clk);
+		if (error != 0) {
+			device_printf(dev, "couldn't enable clock %s\n",
+			    clk_get_name(clk));
+			return (error);
+		}
+	}
+
+	/* De-assert resets */
+	for (off = 0; hwreset_get_by_ofw_idx(dev, off, &rst) == 0; off++) {
+		error = hwreset_deassert(rst);
+		if (error != 0) {
+			device_printf(dev, "couldn't de-assert reset %d\n",
+			    off);
+			return (error);
+		}
+	}
+
+	/* Configure GPIOs */
 	for (off = 0; off < USBPHY_NUMOFF; off++) {
 		snprintf(pname, sizeof(pname), "usb%d_id_det-gpio", off);
 		error = awusbphy_gpio_set(dev, node, pname);
