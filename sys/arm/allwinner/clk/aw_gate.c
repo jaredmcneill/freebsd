@@ -178,4 +178,4 @@ static driver_t aw_gate_driver = {
 static devclass_t aw_gate_devclass;
 
 EARLY_DRIVER_MODULE(aw_gate, simplebus, aw_gate_driver,
-    aw_gate_devclass, 0, 0, BUS_PASS_TIMER);
+    aw_gate_devclass, 0, 0, BUS_PASS_BUS + BUS_PASS_ORDER_MIDDLE);

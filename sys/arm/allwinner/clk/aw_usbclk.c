@@ -232,4 +232,4 @@ static driver_t aw_usbclk_driver = {
 static devclass_t aw_usbclk_devclass;
 
 EARLY_DRIVER_MODULE(aw_usbclk, simplebus, aw_usbclk_driver,
-    aw_usbclk_devclass, 0, 0, BUS_PASS_TIMER);
+    aw_usbclk_devclass, 0, 0, BUS_PASS_BUS + BUS_PASS_ORDER_MIDDLE);

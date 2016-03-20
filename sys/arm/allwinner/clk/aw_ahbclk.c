@@ -141,4 +141,4 @@ static driver_t aw_ahbclk_driver = {
 static devclass_t aw_ahbclk_devclass;
 
 EARLY_DRIVER_MODULE(aw_ahbclk, simplebus, aw_ahbclk_driver,
-    aw_ahbclk_devclass, 0, 0, BUS_PASS_TIMER);
+    aw_ahbclk_devclass, 0, 0, BUS_PASS_BUS + BUS_PASS_ORDER_MIDDLE);

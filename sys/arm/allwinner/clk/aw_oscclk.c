@@ -129,4 +129,4 @@ static driver_t aw_oscclk_driver = {
 static devclass_t aw_oscclk_devclass;
 
 EARLY_DRIVER_MODULE(aw_oscclk, simplebus, aw_oscclk_driver,
-    aw_oscclk_devclass, 0, 0, BUS_PASS_TIMER);
+    aw_oscclk_devclass, 0, 0, BUS_PASS_BUS + BUS_PASS_ORDER_MIDDLE);

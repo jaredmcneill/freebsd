@@ -524,4 +524,4 @@ static driver_t aw_pll_driver = {
 static devclass_t aw_pll_devclass;
 
 EARLY_DRIVER_MODULE(aw_pll, simplebus, aw_pll_driver,
-    aw_pll_devclass, 0, 0, BUS_PASS_TIMER);
+    aw_pll_devclass, 0, 0, BUS_PASS_BUS + BUS_PASS_ORDER_MIDDLE);

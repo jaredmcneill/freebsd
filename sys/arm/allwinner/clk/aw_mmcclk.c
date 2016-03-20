@@ -316,4 +316,4 @@ static driver_t aw_mmcclk_driver = {
 static devclass_t aw_mmcclk_devclass;
 
 EARLY_DRIVER_MODULE(aw_mmcclk, simplebus, aw_mmcclk_driver,
-    aw_mmcclk_devclass, 0, 0, BUS_PASS_TIMER);
+    aw_mmcclk_devclass, 0, 0, BUS_PASS_BUS + BUS_PASS_ORDER_MIDDLE);
