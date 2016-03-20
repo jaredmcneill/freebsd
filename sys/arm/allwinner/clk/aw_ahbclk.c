@@ -106,13 +106,13 @@ aw_ahbclk_attach(device_t dev)
 		goto fail;
 	}
 
-	free(__DECONST(char *, def.clkdef.name), M_OFWPROP);
-
 	if (clkdom_finit(clkdom) != 0) {
 		device_printf(dev, "cannot finalize clkdom initialization\n");
 		error = ENXIO;
 		goto fail;
 	}
+
+	free(__DECONST(char *, def.clkdef.name), M_OFWPROP);
 
 	if (bootverbose)
 		clkdom_dump(clkdom);
