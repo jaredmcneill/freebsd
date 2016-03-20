@@ -181,7 +181,7 @@ aw_usbclk_attach(device_t dev)
 		goto fail;
 	}
 
-	error = clk_get_by_ofw_name(dev, "clocks", &clk_parent);
+	error = clk_get_by_ofw_index(dev, 0, &clk_parent);
 	if (error != 0) {
 		device_printf(dev, "cannot parse clock parent\n");
 		return (ENXIO);
