@@ -301,8 +301,8 @@ a10_pll6_set_freq(struct aw_pll_sc *sc, uint64_t fin, uint64_t *fout,
 	 */
 	if (*fout != 100000000)
 		return (EINVAL);
-	m = n = 1;
-	k = 25;
+	m = k = 1;
+	n = 25;
 
 	DEVICE_LOCK(sc);
 	PLL_READ(sc, &val);
