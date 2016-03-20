@@ -36,33 +36,62 @@ CODE {
 	static int
 	clkdev_default_write_4(device_t dev, bus_addr_t addr, uint32_t val)
 	{
-		return (CLKDEV_WRITE_4(device_get_parent(dev), addr, val));
+		device_t pdev;
+
+		pdev = device_get_parent(dev);
+		if (pdev == NULL)
+			return (ENXIO);
+
+		return (CLKDEV_WRITE_4(pdev, addr, val));
 	}
 
 	static int
 	clkdev_default_read_4(device_t dev, bus_addr_t addr, uint32_t *val)
 	{
-		return (CLKDEV_READ_4(device_get_parent(dev), addr, val));
+		device_t pdev;
+
+		pdev = device_get_parent(dev);
+		if (pdev == NULL)
+			return (ENXIO);
+
+		return (CLKDEV_READ_4(pdev, addr, val));
 	}
 
 	static int
 	clkdev_default_modify_4(device_t dev, bus_addr_t addr,
 	    uint32_t clear_mask, uint32_t set_mask)
 	{
-		return (CLKDEV_MODIFY_4(device_get_parent(dev), addr,
-		    clear_mask, set_mask));
+		device_t pdev;
+
+		pdev = device_get_parent(dev);
+		if (pdev == NULL)
+			return (ENXIO);
+
+		return (CLKDEV_MODIFY_4(pdev, addr, clear_mask, set_mask));
 	}
 
 	static void
 	clkdev_default_device_lock(device_t dev)
 	{
-		CLKDEV_DEVICE_LOCK(device_get_parent(dev));
+		device_t pdev;
+
+		pdev = device_get_parent(dev);
+		if (pdev == NULL)
+			panic("clkdev_device_lock not implemented");
+
+		CLKDEV_DEVICE_LOCK(pdev);
 	}
 
 	static void
 	clkdev_default_device_unlock(device_t dev)
 	{
-		CLKDEV_DEVICE_UNLOCK(device_get_parent(dev));
+		device_t pdev;
+
+		pdev = device_get_parent(dev);
+		if (pdev == NULL)
+			panic("clkdev_device_unlock not implemented");
+
+		CLKDEV_DEVICE_UNLOCK(pdev);
 	}
 }
 
