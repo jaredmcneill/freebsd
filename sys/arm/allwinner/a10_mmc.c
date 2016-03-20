@@ -220,6 +220,22 @@ a10_mmc_attach(device_t dev)
 		device_printf(dev, "cannot get pll clock\n");
 		goto fail;
 	}
+	error = clk_set_parent_by_clk(sc->a10_clk_mmc, sc->a10_clk_osc);
+	if (error != 0) {
+		device_printf(dev, "cannot set mmc clock parent\n");
+		goto fail;
+	}
+	error = clk_set_freq(sc->a10_clk_mmc, CARD_ID_FREQUENCY,
+	    CLK_SET_ROUND_DOWN);
+	if (error != 0) {
+		device_printf(dev, "cannot init mmc clock\n");
+		goto fail;
+	}
+	error = clk_enable(sc->a10_clk_mmc);
+	if (error != 0) {
+		device_printf(dev, "cannot enable mmc clock\n");
+		goto fail;
+	}
 
 	sc->a10_timeout = 10;
 	ctx = device_get_sysctl_ctx(dev);
