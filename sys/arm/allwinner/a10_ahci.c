@@ -48,7 +48,6 @@ __FBSDID("$FreeBSD$");
 
 #include <dev/ahci/ahci.h>
 #include <dev/extres/clk/clk.h>
-#include <arm/allwinner/a10_clk.h>
 
 /*
  * Allwinner a1x/a2x/a8x SATA attachment.  This is just the AHCI register
