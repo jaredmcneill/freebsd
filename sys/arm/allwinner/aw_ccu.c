@@ -40,7 +40,6 @@ __FBSDID("$FreeBSD$");
 #include <sys/kernel.h>
 #include <sys/module.h>
 #include <machine/bus.h>
-#include <machine/fdt.h>
 
 #include <dev/fdt/simplebus.h>
 
@@ -180,7 +179,7 @@ aw_ccu_attach(device_t dev)
 	 * Map CCU registers. The DT doesn't have a "reg" property for the
 	 * /clocks node and child nodes have conflicting "reg" properties.
 	 */
-	sc->bst = fdtbus_bs_tag;
+	sc->bst = bus_get_bus_tag(dev);
 	error = bus_space_map(sc->bst, CCU_BASE, CCU_SIZE, 0, &sc->bsh);
 	if (error != 0) {
 		device_printf(dev, "couldn't map CCU: %d\n", error);
