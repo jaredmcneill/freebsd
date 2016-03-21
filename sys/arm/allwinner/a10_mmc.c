@@ -855,15 +855,19 @@ a10_mmc_update_ios(device_t bus, device_t child)
 			error = clk_set_parent_by_clk(sc->a10_clk_mmc,
 			    sc->a10_clk_pll);
 		}
-		if (error != 0)
+		if (error != 0) {
+			device_printf(sc->a10_dev,
+			    "failed to set clock parent: %d\n", error);
 			return (error);
+		}
 		error = clk_set_freq(sc->a10_clk_mmc, ios->clock,
 		    CLK_SET_ROUND_DOWN);
-		if (error != 0)
+		if (error != 0) {
+			device_printf(sc->a10_dev,
+			    "failed to set frequency to %u Hz: %d\n",
+			    ios->clock, error);
 			return (error);
-		error = clk_enable(sc->a10_clk_mmc);
-		if (error != 0)
-			return (error);
+		}
 
 		/* Enable clock. */
 		clkcr |= A10_MMC_CARD_CLK_ON;
