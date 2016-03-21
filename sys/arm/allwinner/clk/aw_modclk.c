@@ -231,7 +231,7 @@ aw_modclk_attach(device_t dev)
 	bus_addr_t paddr;
 	bus_size_t psize;
 	phandle_t node;
-	int error;
+	int error, ncells, i;
 
 	node = ofw_bus_get_node(dev);
 
@@ -240,13 +240,14 @@ aw_modclk_attach(device_t dev)
 		return (ENXIO);
 	}
 
-	clkdom = clkdom_create(dev);
-
-	error = clk_get_by_ofw_index(dev, 0, &clk_parent);
+	error = ofw_bus_parse_xref_list_get_length(node, "clocks",
+	    "#clock-cells", &ncells);
 	if (error != 0) {
-		device_printf(dev, "cannot parse clock parent\n");
-		return (ENXIO);
+		device_printf(dev, "cannot get clock count\n");
+		return (error);
 	}
+
+	clkdom = clkdom_create(dev);
 
 	memset(&def, 0, sizeof(def));
 	error = clk_parse_ofw_clk_name(dev, node, &def.name);
@@ -256,9 +257,17 @@ aw_modclk_attach(device_t dev)
 		goto fail;
 	}
 	def.id = 1;
-	def.parent_names = malloc(sizeof(char *), M_OFWPROP, M_WAITOK);
-	def.parent_names[0] = clk_get_name(clk_parent);
-	def.parent_cnt = 1;
+	def.parent_names = malloc(sizeof(char *) * ncells, M_OFWPROP, M_WAITOK);
+	for (i = 0; i < ncells; i++) {
+		error = clk_get_by_ofw_index(dev, i, &clk_parent);
+		if (error != 0) {
+			device_printf(dev, "cannot get clock %d\n", i);
+			goto fail;
+		}
+		def.parent_names[i] = clk_get_name(clk_parent);
+		clk_release(clk_parent);
+	}
+	def.parent_cnt = ncells;
 
 	clk = clknode_create(clkdom, &aw_modclk_clknode_class, &def);
 	if (clk == NULL) {
