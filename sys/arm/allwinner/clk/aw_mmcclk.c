@@ -252,10 +252,14 @@ aw_mmcclk_attach(device_t dev)
 		return (ENXIO);
 	}
 
-	clkdom = clkdom_create(dev);
-
 	error = ofw_bus_parse_xref_list_get_length(node, "clocks",
 	    "#clock-cells", &ncells);
+	if (error != 0 || ncells == 0) {
+		device_printf(dev, "couldn't find parent clocks\n");
+		return (ENXIO);
+	}
+
+	clkdom = clkdom_create(dev);
 
 	nout = clk_parse_ofw_out_names(dev, node, &names, &indices);
 	if (nout == 0) {
