@@ -278,6 +278,7 @@ aw_mmcclk_attach(device_t dev)
 		clk_release(clk_parent);
 	}
 	def.parent_cnt = ncells;
+	def.flags = CLK_NODE_GLITCH_FREE;
 
 	clk = clknode_create(clkdom, &aw_mmcclk_clknode_class, &def);
 	if (clk == NULL) {
