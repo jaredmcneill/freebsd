@@ -30,6 +30,7 @@ arm/allwinner/aw_ccu.c			standard
 arm/allwinner/clk/aw_ahbclk.c		standard
 arm/allwinner/clk/aw_apbclk.c		standard
 arm/allwinner/clk/aw_axiclk.c		standard
+arm/allwinner/clk/aw_codecclk.c		standard
 arm/allwinner/clk/aw_cpuclk.c		standard
 arm/allwinner/clk/aw_gate.c		standard
 arm/allwinner/clk/aw_gmacclk.c		standard
