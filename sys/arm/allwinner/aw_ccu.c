@@ -174,6 +174,8 @@ aw_ccu_attach(device_t dev)
 	sc = device_get_softc(dev);
 	node = ofw_bus_get_node(dev);
 
+	simplebus_init(dev, node);
+
 	/*
 	 * Map CCU registers. The DT doesn't have a "reg" property for the
 	 * /clocks node and child nodes have conflicting "reg" properties.
