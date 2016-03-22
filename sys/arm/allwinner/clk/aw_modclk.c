@@ -191,6 +191,7 @@ aw_modclk_set_freq(struct clknode *clk, uint64_t fin, uint64_t *fout,
 	DEVICE_UNLOCK(sc);
 
 	*fout = fin / (1 << best_n) / (best_m + 1);
+	*stop = 1;
 
 	return (0);
 }
