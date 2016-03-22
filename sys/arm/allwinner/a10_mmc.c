@@ -77,8 +77,6 @@ struct a10_mmc_softc {
 	device_t		a10_dev;
 	clk_t			a10_clk_ahb;
 	clk_t			a10_clk_mmc;
-	clk_t			a10_clk_osc;
-	clk_t			a10_clk_pll;
 	int			a10_bus_busy;
 	int			a10_id;
 	int			a10_resid;
@@ -208,21 +206,6 @@ a10_mmc_attach(device_t dev)
 	error = clk_get_by_ofw_name(dev, "mmc", &sc->a10_clk_mmc);
 	if (error != 0) {
 		device_printf(dev, "cannot get mmc clock\n");
-		goto fail;
-	}
-	error = clk_get_by_name(dev, "osc24M", &sc->a10_clk_osc);
-	if (error != 0) {
-		device_printf(dev, "cannot get osc clock\n");
-		goto fail;
-	}
-	error = clk_get_by_name(dev, "pll6_other", &sc->a10_clk_pll);
-	if (error != 0) {
-		device_printf(dev, "cannot get pll clock\n");
-		goto fail;
-	}
-	error = clk_set_parent_by_clk(sc->a10_clk_mmc, sc->a10_clk_osc);
-	if (error != 0) {
-		device_printf(dev, "cannot set mmc clock parent\n");
 		goto fail;
 	}
 	error = clk_set_freq(sc->a10_clk_mmc, CARD_ID_FREQUENCY,
@@ -848,18 +831,6 @@ a10_mmc_update_ios(device_t bus, device_t child)
 			return (error);
 
 		/* Set the MMC clock. */
-		if (ios->clock <= CARD_ID_FREQUENCY) {
-			error = clk_set_parent_by_clk(sc->a10_clk_mmc,
-			    sc->a10_clk_osc);
-		} else {
-			error = clk_set_parent_by_clk(sc->a10_clk_mmc,
-			    sc->a10_clk_pll);
-		}
-		if (error != 0) {
-			device_printf(sc->a10_dev,
-			    "failed to set clock parent: %d\n", error);
-			return (error);
-		}
 		error = clk_set_freq(sc->a10_clk_mmc, ios->clock,
 		    CLK_SET_ROUND_DOWN);
 		if (error != 0) {

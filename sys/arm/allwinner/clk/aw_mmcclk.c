@@ -54,6 +54,8 @@ __FBSDID("$FreeBSD$");
 #define	CLK_SRC_SEL			(0x3 << 24)
 #define	CLK_SRC_SEL_SHIFT		24
 #define	CLK_SRC_SEL_MAX			0x3
+#define	CLK_SRC_SEL_OSC24M		0
+#define	CLK_SRC_SEL_PLL6		1
 #define	CLK_PHASE_CTR			(0x7 << 20)
 #define	CLK_PHASE_CTR_SHIFT		20
 #define	CLK_RATIO_N			(0x3 << 16)
@@ -165,6 +167,7 @@ aw_mmcclk_set_freq(struct clknode *clk, uint64_t fin, uint64_t *fout,
 {
 	struct aw_mmcclk_sc *sc;
 	uint32_t val, m, n, phase, ophase;
+	int parent_idx, error;
 
 	sc = clknode_get_softc(clk);
 
@@ -173,19 +176,34 @@ aw_mmcclk_set_freq(struct clknode *clk, uint64_t fin, uint64_t *fout,
 	 * there is currently no way to do this with the clk API
 	 */
 	if (*fout <= 400000) {
+		parent_idx = CLK_SRC_SEL_OSC24M;
 		ophase = 0;
 		phase = 0;
 		n = 2;
 	} else if (*fout <= 25000000) {
+		parent_idx = CLK_SRC_SEL_PLL6;
 		ophase = 0;
 		phase = 5;
 		n = 2;
 	} else if (*fout <= 50000000) {
+		parent_idx = CLK_SRC_SEL_PLL6;
 		ophase = 3;
 		phase = 5;
 		n = 0;
 	} else
 		return (ERANGE);
+
+	/* Switch parent clock, if necessary */
+	if (parent_idx != clknode_get_parent_idx(clk)) {
+		error = clknode_set_parent_by_idx(clk, parent_idx);
+		if (error != 0)
+			return (error);
+
+		/* Fetch new input frequency */
+		error = clknode_get_freq(clknode_get_parent(clk), &fin);
+		if (error != 0)
+			return (error);
+	}
 
 	m = ((fin / (1 << n)) / *fout) - 1;
 
@@ -201,6 +219,7 @@ aw_mmcclk_set_freq(struct clknode *clk, uint64_t fin, uint64_t *fout,
 	DEVICE_UNLOCK(sc);
 
 	*fout = fin / (1 << n) / (m + 1);
+	*stop = 1;
 
 	return (0);
 }
