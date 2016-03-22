@@ -27,10 +27,46 @@
  */
 
 / {
+	clocks {
+		pll3: clk@01c20010 {
+			#clock-cells = <1>;
+			compatible = "allwinner,sun4i-a10-pll3-clk";
+			reg = <0x01c20010 0x4>;
+			clock-output-names = "pll3-1x", "pll3-2x";
+		};
+
+		pll7: clk@01c20030 {
+			#clock-cells = <1>;
+			compatible = "allwinner,sun4i-a10-pll3-clk";
+			reg = <0x01c20030 0x4>;
+			clock-output-names = "pll7-1x", "pll7-2x";
+		};
+
+		hdmi_clk: clk@01c20150 {
+			#clock-cells = <0>;
+			compatible = "allwinner,sun4i-a10-hdmi-clk";
+			reg = <0x01c20150 0x4>;
+			clocks = <&pll3 0>, <&pll7 0>, <&pll3 1>, <&pll7 1>;
+			clock-output-names = "hdmi";
+		};
+
+		lcd0_ch1_clk: clk@01c2012c {
+			#clock-cells = <1>;
+			compatible = "allwinner,sun4i-a10-lcd-ch1-clk";
+			clocks = <&pll3 0>, <&pll7 0>, <&pll3 1>, <&pll7 1>;
+			clock-output-names = "lcd0_ch1_sclk1",
+					     "lcd0_ch1_sclk2";
+		};
+	};
+
 	soc@01c00000 {
 		hdmi: hdmi@01c16000 {
 			compatible = "allwinner,sun7i-a20-hdmi";
 			reg = <0x01c16000 0x1000>;
+			clocks = <&ahb_gates 43>, <&hdmi_clk>,
+				 <&lcd0_ch1_clk 1>;
+			clock-names = "ahb", "hdmi",
+				      "lcd";
 			status = "disabled";
 		};
 

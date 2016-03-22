@@ -69,6 +69,16 @@ __FBSDID("$FreeBSD$");
 #define	A10_PLL2_PRE_DIV		(0x1f << 0)
 #define	A10_PLL2_PRE_DIV_SHIFT		0
 
+#define	A10_PLL3_MODE_SEL		(0x1 << 15)
+#define	A10_PLL3_MODE_SEL_FRACT		(0 << 15)
+#define	A10_PLL3_MODE_SEL_INT		(1 << 15)
+#define	A10_PLL3_FUNC_SET		(0x1 << 14)
+#define	A10_PLL3_FUNC_SET_270MHZ	(0 << 14)
+#define	A10_PLL3_FUNC_SET_297MHZ	(1 << 14)
+#define	A10_PLL3_FACTOR_M		(0x7f << 0)
+#define	A10_PLL3_FACTOR_M_SHIFT		0
+#define	A10_PLL3_REF_FREQ		3000000
+
 #define	A10_PLL5_OUT_EXT_DIVP		(0x3 << 16)
 #define	A10_PLL5_OUT_EXT_DIVP_SHIFT	16
 #define	A10_PLL5_FACTOR_N		(0x1f << 8)
@@ -91,6 +101,9 @@ __FBSDID("$FreeBSD$");
 
 #define	A10_PLL2_POST_DIV		(0xf << 26)
 
+#define	CLKID_A10_PLL3_1X		0
+#define	CLKID_A10_PLL3_2X		1
+
 #define	CLKID_A10_PLL5_DDR		0
 #define	CLKID_A10_PLL5_OTHER		1
 
@@ -102,6 +115,7 @@ __FBSDID("$FreeBSD$");
 enum aw_pll_type {
 	AWPLL_A10_PLL1 = 1,
 	AWPLL_A10_PLL2,
+	AWPLL_A10_PLL3,
 	AWPLL_A10_PLL5,
 	AWPLL_A10_PLL6,
 };
@@ -220,6 +234,77 @@ a10_pll2_set_freq(struct aw_pll_sc *sc, uint64_t fin, uint64_t *fout,
 }
 
 static int
+a10_pll3_recalc(struct aw_pll_sc *sc, uint64_t *freq)
+{
+	uint32_t val, m;
+
+	DEVICE_LOCK(sc);
+	PLL_READ(sc, &val);
+	DEVICE_UNLOCK(sc);
+
+	if ((val & A10_PLL3_MODE_SEL) == A10_PLL3_MODE_SEL_INT) {
+		/* In integer mode, output is 3MHz * m */
+		m = (val & A10_PLL3_FACTOR_M) >> A10_PLL3_FACTOR_M_SHIFT;
+		*freq = A10_PLL3_REF_FREQ * m;
+	} else {
+		/* In fractional mode, output is either 270MHz or 297MHz */
+		if ((val & A10_PLL3_FUNC_SET) == A10_PLL3_FUNC_SET_270MHZ)
+			*freq = 270000000;
+		else
+			*freq = 297000000;
+	}
+
+	if (sc->id == CLKID_A10_PLL3_2X)
+		*freq *= 2;
+
+	return (0);
+}
+
+static int
+a10_pll3_set_freq(struct aw_pll_sc *sc, uint64_t fin, uint64_t *fout,
+    int flags)
+{
+	uint32_t val, m, mode, func;
+	uint32_t freq;
+
+	freq = *fout;
+	if (sc->id == CLKID_A10_PLL3_2X)
+		freq /= 2;
+
+	switch (freq) {
+	case 297000000:
+		m = 0;
+		mode = A10_PLL3_MODE_SEL_FRACT;
+		func = A10_PLL3_FUNC_SET_297MHZ;
+		break;
+	case 270000000:
+		m = 0;
+		mode = A10_PLL3_MODE_SEL_FRACT;
+		func = A10_PLL3_FUNC_SET_270MHZ;
+		break;
+	default:
+		m = freq / A10_PLL3_REF_FREQ;
+		mode = A10_PLL3_MODE_SEL_INT;
+		func = 0;
+		*fout = m * A10_PLL3_REF_FREQ;
+		if (sc->id == CLKID_A10_PLL3_2X)
+			*fout *= 2;
+		break;
+	}
+
+	DEVICE_LOCK(sc);
+	PLL_READ(sc, &val);
+	val &= ~(A10_PLL3_MODE_SEL | A10_PLL3_FUNC_SET | A10_PLL3_FACTOR_M);
+	val |= mode;
+	val |= func;
+	val |= (m << A10_PLL3_FACTOR_M_SHIFT);
+	PLL_WRITE(sc, val);
+	DEVICE_UNLOCK(sc);
+
+	return (0);
+}
+
+static int
 a10_pll5_recalc(struct aw_pll_sc *sc, uint64_t *freq)
 {
 	uint32_t val, m, n, k, p;
@@ -324,6 +409,7 @@ a10_pll6_set_freq(struct aw_pll_sc *sc, uint64_t fin, uint64_t *fout,
 static struct aw_pll_funcs aw_pll_func[] = {
 	PLL(AWPLL_A10_PLL1, a10_pll1_recalc, NULL),
 	PLL(AWPLL_A10_PLL2, a10_pll2_recalc, a10_pll2_set_freq),
+	PLL(AWPLL_A10_PLL3, a10_pll3_recalc, a10_pll3_set_freq),
 	PLL(AWPLL_A10_PLL5, a10_pll5_recalc, NULL),
 	PLL(AWPLL_A10_PLL6, a10_pll6_recalc, a10_pll6_set_freq),
 };
@@ -331,6 +417,7 @@ static struct aw_pll_funcs aw_pll_func[] = {
 static struct ofw_compat_data compat_data[] = {
 	{ "allwinner,sun4i-a10-pll1-clk",	AWPLL_A10_PLL1 },
 	{ "allwinner,sun4i-a10-pll2-clk",	AWPLL_A10_PLL2 },
+	{ "allwinner,sun4i-a10-pll3-clk",	AWPLL_A10_PLL3 },
 	{ "allwinner,sun4i-a10-pll5-clk",	AWPLL_A10_PLL5 },
 	{ "allwinner,sun4i-a10-pll6-clk",	AWPLL_A10_PLL6 },
 	{ NULL, 0 }
@@ -415,9 +502,13 @@ aw_pll_create(device_t dev, bus_addr_t paddr, struct clkdom *clkdom,
 	memset(&clkdef, 0, sizeof(clkdef));
 	clkdef.id = index;
 	clkdef.name = clkname;
-	clkdef.parent_names = malloc(sizeof(char *), M_OFWPROP, M_WAITOK);
-	clkdef.parent_names[0] = pclkname;
-	clkdef.parent_cnt = 1;
+	if (pclkname != NULL) {
+		clkdef.parent_names = malloc(sizeof(char *), M_OFWPROP,
+		    M_WAITOK);
+		clkdef.parent_names[0] = pclkname;
+		clkdef.parent_cnt = 1;
+	} else
+		clkdef.parent_cnt = 0;
 
 	clk = clknode_create(clkdom, &aw_pll_clknode_class, &clkdef);
 	if (clk == NULL) {
@@ -478,16 +569,13 @@ aw_pll_attach(device_t dev)
 		goto fail;
 	}
 
-	error = clk_get_by_ofw_index(dev, 0, &clk_parent);
-	if (error != 0) {
-		device_printf(dev, "cannot parse clock parent\n");
-		return (error);
-	}
+	if (clk_get_by_ofw_index(dev, 0, &clk_parent) != 0)
+		clk_parent = NULL;
 
 	for (index = 0; index < nout; index++) {
 		error = aw_pll_create(dev, paddr, clkdom,
-		    clk_get_name(clk_parent), names[index],
-		    nout == 1 ? 1 : index);
+		    clk_parent ? clk_get_name(clk_parent) : NULL,
+		    names[index], nout == 1 ? 1 : index);
 		if (error)
 			goto fail;
 	}
