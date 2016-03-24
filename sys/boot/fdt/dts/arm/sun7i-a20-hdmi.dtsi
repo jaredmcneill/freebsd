@@ -98,12 +98,12 @@
 			compatible = "allwinner,sun7i-a20-fb";
 			reg = <0x01e60000 0x10000>,	/* DEBE0 */
 			      <0x01c0c000 0x1000>;	/* LCD0 */
-			clocks = <&ahb_gates 44>, <&de_be0_clk>,
-				 <&ahb_gates 36>, <&lcd0_ch0_clk>,
-				 <&lcd0_ch1_clk>;
-			clock-names = "ahb_de_be", "de_be",
-				      "ahb_lcd", "lcd_ch0",
-				      "lcd_ch1";
+			clocks = <&ahb_gates 44>, <&dram_gates 26>,
+				 <&de_be0_clk>, <&ahb_gates 36>,
+				 <&lcd0_ch1_clk 0>, <&lcd0_ch1_clk 1>;
+			clock-names = "ahb_de_be", "dram_de_be",
+				      "de_be", "ahb_lcd",
+				      "lcd_ch1_sclk1", "lcd_ch1_sclk2";
 			resets = <&de_be0_clk>, <&lcd0_ch0_clk>;
 			reset-names = "de_be", "lcd";
 		};

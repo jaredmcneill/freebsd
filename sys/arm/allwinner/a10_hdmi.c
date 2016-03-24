@@ -547,6 +547,8 @@ a10hdmi_get_tcon_config(struct a10hdmi_softc *sc, int *div, int *dbl)
 	else
 		*dbl = 1;
 
+	printf("%s: tcon div = %d, dbl = %d [%s]\n", __func__, *div, *dbl, pname);
+
 	return (0);
 }
 
@@ -568,8 +570,10 @@ a10hdmi_set_videomode(device_t dev, const struct videomode *mode)
 	vbp = mode->vtotal - mode->vsync_start;
 
 	error = a10hdmi_get_tcon_config(sc, &clk_div, &clk_dbl);
-	if (error != 0)
+	if (error != 0) {
+		device_printf(dev, "couldn't get tcon config: %d\n", error);
 		return (error);
+	}
 
 	/* Clear interrupt status */
 	HDMI_WRITE(sc, HDMI_INT_STATUS, HDMI_READ(sc, HDMI_INT_STATUS));

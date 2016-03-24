@@ -130,6 +130,7 @@ struct aw_pll_sc {
 struct aw_pll_funcs {
 	int	(*recalc)(struct aw_pll_sc *, uint64_t *);
 	int	(*set_freq)(struct aw_pll_sc *, uint64_t, uint64_t *, int);
+	int	(*init)(struct clknode_init_def *);
 };
 
 #define	PLL_READ(sc, val)	CLKDEV_READ_4((sc)->clkdev, (sc)->reg, (val))
@@ -265,13 +266,8 @@ a10_pll3_set_freq(struct aw_pll_sc *sc, uint64_t fin, uint64_t *fout,
     int flags)
 {
 	uint32_t val, m, mode, func;
-	uint32_t freq;
 
-	freq = *fout;
-	if (sc->id == CLKID_A10_PLL3_2X)
-		freq /= 2;
-
-	switch (freq) {
+	switch (*fout) {
 	case 297000000:
 		m = 0;
 		mode = A10_PLL3_MODE_SEL_FRACT;
@@ -283,14 +279,15 @@ a10_pll3_set_freq(struct aw_pll_sc *sc, uint64_t fin, uint64_t *fout,
 		func = A10_PLL3_FUNC_SET_270MHZ;
 		break;
 	default:
-		m = freq / A10_PLL3_REF_FREQ;
+		m = *fout / A10_PLL3_REF_FREQ;
 		mode = A10_PLL3_MODE_SEL_INT;
 		func = 0;
 		*fout = m * A10_PLL3_REF_FREQ;
-		if (sc->id == CLKID_A10_PLL3_2X)
-			*fout *= 2;
 		break;
 	}
+
+	printf("%s: m=%d mode=%d func=%d fin=%llu fout=%llu\n", __func__,
+	    m, mode, func, fin, *fout);
 
 	DEVICE_LOCK(sc);
 	PLL_READ(sc, &val);
@@ -300,6 +297,14 @@ a10_pll3_set_freq(struct aw_pll_sc *sc, uint64_t fin, uint64_t *fout,
 	val |= (m << A10_PLL3_FACTOR_M_SHIFT);
 	PLL_WRITE(sc, val);
 	DEVICE_UNLOCK(sc);
+
+	return (0);
+}
+
+static int
+a10_pll3_init(struct clknode_init_def *def)
+{
+	def->flags = CLK_NODE_GLITCH_FREE;
 
 	return (0);
 }
@@ -403,15 +408,19 @@ a10_pll6_set_freq(struct aw_pll_sc *sc, uint64_t fin, uint64_t *fout,
 	return (0);
 }
 
-#define	PLL(_type, _recalc, _set_freq)	\
-	[(_type)] = { .recalc = (_recalc), .set_freq = (_set_freq) }
+#define	PLL(_type, _recalc, _set_freq, _init)	\
+	[(_type)] = {				\
+		.recalc = (_recalc),		\
+		.set_freq = (_set_freq),	\
+		.init = (_init)			\
+	}
 
 static struct aw_pll_funcs aw_pll_func[] = {
-	PLL(AWPLL_A10_PLL1, a10_pll1_recalc, NULL),
-	PLL(AWPLL_A10_PLL2, a10_pll2_recalc, a10_pll2_set_freq),
-	PLL(AWPLL_A10_PLL3, a10_pll3_recalc, a10_pll3_set_freq),
-	PLL(AWPLL_A10_PLL5, a10_pll5_recalc, NULL),
-	PLL(AWPLL_A10_PLL6, a10_pll6_recalc, a10_pll6_set_freq),
+	PLL(AWPLL_A10_PLL1, a10_pll1_recalc, NULL, NULL),
+	PLL(AWPLL_A10_PLL2, a10_pll2_recalc, a10_pll2_set_freq, NULL),
+	PLL(AWPLL_A10_PLL3, a10_pll3_recalc, a10_pll3_set_freq, a10_pll3_init),
+	PLL(AWPLL_A10_PLL5, a10_pll5_recalc, NULL, NULL),
+	PLL(AWPLL_A10_PLL6, a10_pll6_recalc, a10_pll6_set_freq, NULL),
 };
 
 static struct ofw_compat_data compat_data[] = {
@@ -495,9 +504,13 @@ static int
 aw_pll_create(device_t dev, bus_addr_t paddr, struct clkdom *clkdom,
     const char *pclkname, const char *clkname, int index)
 {
+	enum aw_pll_type type;
 	struct clknode_init_def clkdef;
 	struct aw_pll_sc *sc;
 	struct clknode *clk;
+	int error;
+
+	type = ofw_bus_search_compatible(dev, compat_data)->ocd_data;
 
 	memset(&clkdef, 0, sizeof(clkdef));
 	clkdef.id = index;
@@ -510,6 +523,14 @@ aw_pll_create(device_t dev, bus_addr_t paddr, struct clkdom *clkdom,
 	} else
 		clkdef.parent_cnt = 0;
 
+	if (aw_pll_func[type].init != NULL) {
+		error = aw_pll_func[type].init(&clkdef);
+		if (error != 0) {
+			device_printf(dev, "clock %s init failed\n", clkname);
+			return (error);
+		}
+	}
+
 	clk = clknode_create(clkdom, &aw_pll_clknode_class, &clkdef);
 	if (clk == NULL) {
 		device_printf(dev, "cannot create clock node\n");
@@ -517,8 +538,8 @@ aw_pll_create(device_t dev, bus_addr_t paddr, struct clkdom *clkdom,
 	}
 	sc = clknode_get_softc(clk);
 	sc->clkdev = device_get_parent(dev);
-	sc->type = ofw_bus_search_compatible(dev, compat_data)->ocd_data;
 	sc->reg = paddr;
+	sc->type = type;
 	sc->id = clkdef.id;
 
 	clknode_register(clkdom, clk);
