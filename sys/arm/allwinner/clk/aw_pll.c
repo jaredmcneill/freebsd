@@ -402,6 +402,20 @@ a10_pll6_recalc(struct aw_pll_sc *sc, uint64_t *freq)
 	return (0);
 }
 
+static int
+a10_pll6_set_freq(struct aw_pll_sc *sc, uint64_t fin, uint64_t *fout,
+    int flags)
+{
+	if (sc->id != CLKID_A10_PLL6_SATA)
+		return (ENXIO);
+
+	/* PLL6 SATA output has been set to 100MHz in a10_pll6_init */
+	if (*fout != 100000000)
+		return (ERANGE);
+
+	return (0);
+}
+
 #define	PLL(_type, _recalc, _set_freq, _init)	\
 	[(_type)] = {				\
 		.recalc = (_recalc),		\
@@ -414,7 +428,7 @@ static struct aw_pll_funcs aw_pll_func[] = {
 	PLL(AWPLL_A10_PLL2, a10_pll2_recalc, a10_pll2_set_freq, NULL),
 	PLL(AWPLL_A10_PLL3, a10_pll3_recalc, a10_pll3_set_freq, a10_pll3_init),
 	PLL(AWPLL_A10_PLL5, a10_pll5_recalc, NULL, NULL),
-	PLL(AWPLL_A10_PLL6, a10_pll6_recalc, NULL, a10_pll6_init),
+	PLL(AWPLL_A10_PLL6, a10_pll6_recalc, a10_pll6_set_freq, a10_pll6_init),
 };
 
 static struct ofw_compat_data compat_data[] = {
