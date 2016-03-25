@@ -267,24 +267,15 @@ a10_pll3_set_freq(struct aw_pll_sc *sc, uint64_t fin, uint64_t *fout,
 {
 	uint32_t val, m, mode, func;
 
-	switch (*fout) {
-	case 297000000:
-		m = 0;
-		mode = A10_PLL3_MODE_SEL_FRACT;
-		func = A10_PLL3_FUNC_SET_297MHZ;
-		break;
-	case 270000000:
-		m = 0;
-		mode = A10_PLL3_MODE_SEL_FRACT;
-		func = A10_PLL3_FUNC_SET_270MHZ;
-		break;
-	default:
-		m = *fout / A10_PLL3_REF_FREQ;
-		mode = A10_PLL3_MODE_SEL_INT;
-		func = 0;
-		*fout = m * A10_PLL3_REF_FREQ;
-		break;
-	}
+	m = *fout / A10_PLL3_REF_FREQ;
+	if (sc->id == CLKID_A10_PLL3_2X)
+		m /= 2;
+
+	mode = A10_PLL3_MODE_SEL_INT;
+	func = 0;
+	*fout = m * A10_PLL3_REF_FREQ;
+	if (sc->id == CLKID_A10_PLL3_2X)
+		*fout *= 2;
 
 	printf("%s: m=%d mode=%d func=%d fin=%llu fout=%llu\n", __func__,
 	    m, mode, func, fin, *fout);
