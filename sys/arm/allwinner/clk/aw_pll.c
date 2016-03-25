@@ -343,6 +343,34 @@ a10_pll5_recalc(struct aw_pll_sc *sc, uint64_t *freq)
 }
 
 static int
+a10_pll6_init(device_t dev, bus_addr_t reg, struct clknode_init_def *def)
+{
+	uint32_t val, m, n, k;
+
+	/*
+	 * SATA needs PLL6 to be a 100MHz clock.
+	 *
+	 * The SATA output frequency is (24MHz * n * k) / m / 6.
+	 * To get to 100MHz, k & m must be equal and n must be 25.
+	 */
+	m = k = 0;
+	n = 25;
+
+	CLKDEV_DEVICE_LOCK(dev);
+	CLKDEV_READ_4(dev, reg, &val);
+	val &= ~(A10_PLL6_FACTOR_N | A10_PLL6_FACTOR_K | A10_PLL6_FACTOR_M);
+	val &= ~A10_PLL6_BYPASS_EN;
+	val |= A10_PLL6_SATA_CLK_EN;
+	val |= (n << A10_PLL6_FACTOR_N_SHIFT);
+	val |= (k << A10_PLL6_FACTOR_K_SHIFT);
+	val |= (m << A10_PLL6_FACTOR_M_SHIFT);
+	CLKDEV_WRITE_4(dev, reg, val);
+	CLKDEV_DEVICE_UNLOCK(dev);
+
+	return (0);
+}
+
+static int
 a10_pll6_recalc(struct aw_pll_sc *sc, uint64_t *freq)
 {
 	uint32_t val, m, k, n;
@@ -377,40 +405,6 @@ a10_pll6_recalc(struct aw_pll_sc *sc, uint64_t *freq)
 	return (0);
 }
 
-static int
-a10_pll6_set_freq(struct aw_pll_sc *sc, uint64_t fin, uint64_t *fout,
-    int flags)
-{
-	uint32_t val, m, k, n;
-
-	if (sc->id != CLKID_A10_PLL6_SATA)
-		return (ENXIO);
-
-	/*
-	 * SATA needs PLL6 to be a 100MHz clock.
-	 *
-	 * The SATA output frequency is (24MHz * n * k) / m / 6.
-	 * To get to 100MHz, k & m must be equal and n must be 25.
-	 */
-	if (*fout != 100000000)
-		return (EINVAL);
-	m = k = 1;
-	n = 25;
-
-	DEVICE_LOCK(sc);
-	PLL_READ(sc, &val);
-	val &= ~(A10_PLL6_FACTOR_N | A10_PLL6_FACTOR_K | A10_PLL6_FACTOR_M);
-	val &= ~A10_PLL6_BYPASS_EN;
-	val |= A10_PLL6_SATA_CLK_EN;
-	val |= (n << A10_PLL6_FACTOR_N_SHIFT);
-	val |= (k << A10_PLL6_FACTOR_K_SHIFT);
-	val |= (m << A10_PLL6_FACTOR_M_SHIFT);
-	PLL_WRITE(sc, val);
-	DEVICE_UNLOCK(sc);
-
-	return (0);
-}
-
 #define	PLL(_type, _recalc, _set_freq, _init)	\
 	[(_type)] = {				\
 		.recalc = (_recalc),		\
@@ -423,7 +417,7 @@ static struct aw_pll_funcs aw_pll_func[] = {
 	PLL(AWPLL_A10_PLL2, a10_pll2_recalc, a10_pll2_set_freq, NULL),
 	PLL(AWPLL_A10_PLL3, a10_pll3_recalc, a10_pll3_set_freq, a10_pll3_init),
 	PLL(AWPLL_A10_PLL5, a10_pll5_recalc, NULL, NULL),
-	PLL(AWPLL_A10_PLL6, a10_pll6_recalc, a10_pll6_set_freq, NULL),
+	PLL(AWPLL_A10_PLL6, a10_pll6_recalc, NULL, a10_pll6_init),
 };
 
 static struct ofw_compat_data compat_data[] = {
