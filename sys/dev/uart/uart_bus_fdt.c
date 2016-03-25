@@ -48,30 +48,14 @@ __FBSDID("$FreeBSD$");
 #include <dev/uart/uart_cpu.h>
 #include <dev/uart/uart_cpu_fdt.h>
 
-#ifdef EXT_RESOURCES
-#include <dev/extres/clk/clk.h>
-#include <dev/extres/hwreset/hwreset.h>
-#endif
-
 static int uart_fdt_probe(device_t);
-static int uart_fdt_attach(device_t);
-static int uart_fdt_detach(device_t);
 
 static device_method_t uart_fdt_methods[] = {
 	/* Device interface */
 	DEVMETHOD(device_probe,		uart_fdt_probe),
-	DEVMETHOD(device_attach,	uart_fdt_attach),
-	DEVMETHOD(device_detach,	uart_fdt_detach),
+	DEVMETHOD(device_attach,	uart_bus_attach),
+	DEVMETHOD(device_detach,	uart_bus_detach),
 	{ 0, 0 }
-};
-
-struct uart_fdt_softc {
-	struct uart_softc	uart_sc;
-#ifdef EXT_RESOURCES
-	clk_t			baudclk;
-	clk_t			apb_pclk;
-	hwreset_t		reset;
-#endif
 };
 
 static driver_t uart_fdt_driver = {
@@ -80,58 +64,20 @@ static driver_t uart_fdt_driver = {
 	sizeof(struct uart_softc),
 };
 
-#ifdef EXT_RESOURCES
-static int
-uart_fdt_get_clock_extres(device_t dev, clk_t *baudclk, clk_t *apb_pclk)
-{
-	/* Baud clock is either the named clock "baudclk" or the first clock */
-	if (clk_get_by_ofw_name(dev, "baudclk", baudclk) != 0 &&
-	    clk_get_by_ofw_index(dev, 0, baudclk) != 0)
-		return (ENOENT);
-
-	if (apb_pclk == NULL)
-		return (0);
-
-	/* apb_pclk is optional */
-	(void)clk_get_by_ofw_name(dev, "apb_pclk", apb_pclk);
-
-	return (0);
-}
-#endif
-
 int
-uart_fdt_get_clock(device_t dev, phandle_t node, pcell_t *cell)
+uart_fdt_get_clock(phandle_t node, pcell_t *cell)
 {
-#ifdef EXT_RESOURCES
-	uint64_t freq;
-	clk_t clk;
-	int error;
-#endif
 
 	/* clock-frequency is a FreeBSD-only extention. */
-	if ((OF_getencprop(node, "clock-frequency", cell, sizeof(*cell))) > 0)
-		return (0);
-
-	/* Try to retrieve parent 'bus-frequency' */
-	/* XXX this should go to simple-bus fixup or so */
-	if ((OF_getencprop(OF_parent(node), "bus-frequency", cell,
-	    sizeof(*cell))) > 0)
-		return (0);
-
-#ifdef EXT_RESOURCES
-	/* Get clock rate from clk API */
-	if (dev != NULL && uart_fdt_get_clock_extres(dev, &clk, NULL) == 0) {
-		error = clk_get_freq(clk, &freq);
-		clk_release(clk);
-		if (error == 0) {
-			*cell = (pcell_t)freq;
-			return (0);
-		}
+	if ((OF_getencprop(node, "clock-frequency", cell,
+	    sizeof(*cell))) <= 0) {
+		/* Try to retrieve parent 'bus-frequency' */
+		/* XXX this should go to simple-bus fixup or so */
+		if ((OF_getencprop(OF_parent(node), "bus-frequency", cell,
+		    sizeof(*cell))) <= 0)
+			*cell = 0;
 	}
-#endif
 
-	/* Not found */
-	*cell = 0;
 	return (0);
 }
 
@@ -177,94 +123,12 @@ uart_fdt_probe(device_t dev)
 
 	node = ofw_bus_get_node(dev);
 
-	if ((err = uart_fdt_get_clock(dev, node, &clock)) != 0)
+	if ((err = uart_fdt_get_clock(node, &clock)) != 0)
 		return (err);
 	if (uart_fdt_get_shift(node, &shift) != 0)
 		shift = uart_getregshift(sc->sc_class);
 
 	return (uart_bus_probe(dev, (int)shift, (int)clock, 0, 0));
-}
-
-static int
-uart_fdt_attach(device_t dev)
-{
-#ifdef EXT_RESOURCES
-	struct uart_fdt_softc *sc;
-	int error;
-
-	sc = device_get_softc(dev);
-
-	if (uart_fdt_get_clock_extres(dev, &sc->baudclk, &sc->apb_pclk) == 0) {
-		error = clk_enable(sc->baudclk);
-		if (error != 0) {
-			device_printf(dev, "cannot enable baud clock\n");
-			return (error);
-		}
-		if (sc->apb_pclk != NULL) {
-			error = clk_enable(sc->apb_pclk);
-			if (error != 0) {
-				device_printf(dev,
-				    "cannot enable periph clock\n");
-				return (error);
-			}
-		}
-	}
-
-	if (hwreset_get_by_ofw_idx(dev, 0, &sc->reset) == 0) {
-		error = hwreset_deassert(sc->reset);
-		if (error != 0) {
-			device_printf(dev, "cannot de-assert reset\n");
-			return (error);
-		}
-	}
-#endif
-
-	return (uart_bus_attach(dev));
-}
-
-static int
-uart_fdt_detach(device_t dev)
-{
-#ifdef EXT_RESOURCES
-	struct uart_fdt_softc *sc;
-#endif
-	int error;
-
-	error = uart_bus_detach(dev);
-	if (error != 0)
-		return (error);
-
-#ifdef EXT_RESOURCES
-	sc = device_get_softc(dev);
-
-	if (sc->reset != NULL) {
-		error = hwreset_assert(sc->reset);
-		if (error != 0) {
-			device_printf(dev, "cannot assert reset\n");
-			return (error);
-		}
-		hwreset_release(sc->reset);
-	}
-
-	if (sc->apb_pclk != NULL) {
-		error = clk_disable(sc->apb_pclk);
-		if (error != 0)
-			return (error);
-		error = clk_release(sc->apb_pclk);
-		if (error != 0)
-			return (error);
-	}
-	if (sc->baudclk != NULL) {
-		error = clk_disable(sc->baudclk);
-		if (error != 0)
-			return (error);
-		error = clk_release(sc->baudclk);
-		if (error != 0)
-			return (error);
-	}
-#endif
-
-	return (0);
 }
 
 DRIVER_MODULE(uart, simplebus, uart_fdt_driver, uart_devclass, 0, 0);

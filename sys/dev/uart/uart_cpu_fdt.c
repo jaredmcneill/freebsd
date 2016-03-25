@@ -171,7 +171,7 @@ uart_cpu_getdev(int devtype, struct uart_devinfo *di)
 	 */
 	class = (struct uart_class *)uart_fdt_find_by_node(node, 0);
 	if (class != NULL) {
-		if ((err = uart_fdt_get_clock(NULL, node, &rclk)) != 0)
+		if ((err = uart_fdt_get_clock(node, &rclk)) != 0)
 			return (err);
 	} else {
 		/* Check class only linker set */
