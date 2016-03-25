@@ -101,6 +101,29 @@ __FBSDID("$FreeBSD$");
 
 #define	A10_PLL2_POST_DIV		(0xf << 26)
 
+#define	A31_PLL1_LOCK			(1 << 28)
+#define	A31_PLL1_CPU_SIGMA_DELTA_EN	(1 << 24)
+#define	A31_PLL1_FACTOR_N		(0x1f << 8)
+#define	A31_PLL1_FACTOR_N_SHIFT		8
+#define	A31_PLL1_FACTOR_K		(0x3 << 4)
+#define	A31_PLL1_FACTOR_K_SHIFT		4
+#define	A31_PLL1_FACTOR_M		(0x3 << 0)
+#define	A31_PLL1_FACTOR_M_SHIFT		0
+
+#define	A31_PLL6_LOCK			(1 << 28)
+#define	A31_PLL6_BYPASS_EN		(1 << 25)
+#define	A31_PLL6_CLK_OUT_EN		(1 << 24)
+#define	A31_PLL6_24M_OUT_EN		(1 << 18)
+#define	A31_PLL6_24M_POST_DIV		(0x3 << 16)
+#define	A31_PLL6_24M_POST_DIV_SHIFT	16
+#define	A31_PLL6_FACTOR_N		(0x1f << 8)
+#define	A31_PLL6_FACTOR_N_SHIFT		8
+#define	A31_PLL6_FACTOR_K		(0x3 << 4)
+#define	A31_PLL6_FACTOR_K_SHIFT		4
+#define	A31_PLL6_DEFAULT_N		0x18
+#define	A31_PLL6_DEFAULT_K		0x1
+#define	A31_PLL6_TIMEOUT		10
+
 #define	CLKID_A10_PLL3_1X		0
 #define	CLKID_A10_PLL3_2X		1
 
@@ -112,12 +135,17 @@ __FBSDID("$FreeBSD$");
 #define	CLKID_A10_PLL6			2
 #define	CLKID_A10_PLL6_DIV_4		3
 
+#define	CLKID_A31_PLL6			0
+#define	CLKID_A31_PLL6_X2		1
+
 enum aw_pll_type {
 	AWPLL_A10_PLL1 = 1,
 	AWPLL_A10_PLL2,
 	AWPLL_A10_PLL3,
 	AWPLL_A10_PLL5,
 	AWPLL_A10_PLL6,
+	AWPLL_A31_PLL1,
+	AWPLL_A31_PLL6,
 };
 
 struct aw_pll_sc {
@@ -416,6 +444,86 @@ a10_pll6_set_freq(struct aw_pll_sc *sc, uint64_t fin, uint64_t *fout,
 	return (0);
 }
 
+static int
+a31_pll1_recalc(struct aw_pll_sc *sc, uint64_t *freq)
+{
+	uint32_t val, m, n, k;
+
+	DEVICE_LOCK(sc);
+	PLL_READ(sc, &val);
+	DEVICE_UNLOCK(sc);
+
+	m = ((val & A31_PLL1_FACTOR_M) >> A31_PLL1_FACTOR_M_SHIFT) + 1;
+	k = ((val & A31_PLL1_FACTOR_K) >> A31_PLL1_FACTOR_K_SHIFT) + 1;
+	n = ((val & A31_PLL1_FACTOR_N) >> A31_PLL1_FACTOR_N_SHIFT) + 1;
+
+	*freq = (*freq * n * k) / m;
+
+	return (0);
+}
+
+static int
+a31_pll6_init(device_t dev, bus_addr_t reg, struct clknode_init_def *def)
+{
+	uint32_t val;
+	int retry;
+
+	if (def->id != CLKID_A31_PLL6)
+		return (0);
+
+	/*
+	 * The datasheet recommends that PLL6 output should be fixed to
+	 * 600MHz.
+	 */
+	CLKDEV_DEVICE_LOCK(dev);
+	CLKDEV_READ_4(dev, reg, &val);
+	val &= ~(A31_PLL6_FACTOR_N | A31_PLL6_FACTOR_K | A31_PLL6_BYPASS_EN);
+	val |= (A31_PLL6_DEFAULT_N << A31_PLL6_FACTOR_N_SHIFT);
+	val |= (A31_PLL6_DEFAULT_K << A31_PLL6_FACTOR_K_SHIFT);
+	CLKDEV_WRITE_4(dev, reg, val);
+
+	/* Wait for PLL to become stable */
+	for (retry = A31_PLL6_TIMEOUT; retry > 0; retry--) {
+		CLKDEV_READ_4(dev, reg, &val);
+		if ((val & A31_PLL6_LOCK) == A31_PLL6_LOCK)
+			break;
+		DELAY(1);
+	}
+
+	CLKDEV_DEVICE_UNLOCK(dev);
+
+	if (retry == 0)
+		return (ETIMEDOUT);
+
+	return (0);
+}
+
+static int
+a31_pll6_recalc(struct aw_pll_sc *sc, uint64_t *freq)
+{
+	uint32_t val, k, n;
+
+	DEVICE_LOCK(sc);
+	PLL_READ(sc, &val);
+	DEVICE_UNLOCK(sc);
+
+	k = ((val & A10_PLL6_FACTOR_K) >> A10_PLL6_FACTOR_K_SHIFT) + 1;
+	n = ((val & A10_PLL6_FACTOR_N) >> A10_PLL6_FACTOR_N_SHIFT) + 1;
+
+	switch (sc->id) {
+	case CLKID_A31_PLL6:
+		*freq = (*freq * n * k) / 2;
+		break;
+	case CLKID_A31_PLL6_X2:
+		*freq = *freq * n * k;
+		break;
+	default:
+		return (ENXIO);
+	}
+
+	return (0);
+}
+
 #define	PLL(_type, _recalc, _set_freq, _init)	\
 	[(_type)] = {				\
 		.recalc = (_recalc),		\
@@ -429,6 +537,8 @@ static struct aw_pll_funcs aw_pll_func[] = {
 	PLL(AWPLL_A10_PLL3, a10_pll3_recalc, a10_pll3_set_freq, a10_pll3_init),
 	PLL(AWPLL_A10_PLL5, a10_pll5_recalc, NULL, NULL),
 	PLL(AWPLL_A10_PLL6, a10_pll6_recalc, a10_pll6_set_freq, a10_pll6_init),
+	PLL(AWPLL_A31_PLL1, a31_pll1_recalc, NULL, NULL),
+	PLL(AWPLL_A31_PLL6, a31_pll6_recalc, NULL, a31_pll6_init),
 };
 
 static struct ofw_compat_data compat_data[] = {
@@ -437,6 +547,8 @@ static struct ofw_compat_data compat_data[] = {
 	{ "allwinner,sun4i-a10-pll3-clk",	AWPLL_A10_PLL3 },
 	{ "allwinner,sun4i-a10-pll5-clk",	AWPLL_A10_PLL5 },
 	{ "allwinner,sun4i-a10-pll6-clk",	AWPLL_A10_PLL6 },
+	{ "allwinner,sun6i-a31-pll1-clk",	AWPLL_A31_PLL1 },
+	{ "allwinner,sun6i-a31-pll6-clk",	AWPLL_A31_PLL6 },
 	{ NULL, 0 }
 };
 

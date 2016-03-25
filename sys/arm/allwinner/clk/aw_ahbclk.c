@@ -56,14 +56,23 @@ __FBSDID("$FreeBSD$");
 #define	A13_AHB_CLK_SRC_SEL_MAX		3
 #define	A13_AHB_CLK_SRC_SEL_SHIFT	6
 
+#define	A31_AHB1_PRE_DIV		(0x3 << 6)
+#define	A31_AHB1_PRE_DIV_SHIFT		6
+#define	A31_AHB1_CLK_SRC_SEL		(0x3 << 12)
+#define	A31_AHB1_CLK_SRC_SEL_PLL6	3
+#define	A31_AHB1_CLK_SRC_SEL_MAX	3
+#define	A31_AHB1_CLK_SRC_SEL_SHIFT	12
+
 enum aw_ahbclk_type {
 	AW_A10_AHB = 1,
 	AW_A13_AHB,
+	AW_A31_AHB,
 };
 
 static struct ofw_compat_data compat_data[] = {
 	{ "allwinner,sun4i-a10-ahb-clk",	AW_A10_AHB },
 	{ "allwinner,sun5i-a13-ahb-clk",	AW_A13_AHB },
+	{ "allwinner,sun6i-a31-ahb-clk",	AW_A31_AHB },
 	{ NULL, 0 }
 };
 
@@ -97,6 +106,13 @@ aw_ahbclk_init(struct clknode *clk, device_t dev)
 		index = (val & A13_AHB_CLK_SRC_SEL) >>
 		    A13_AHB_CLK_SRC_SEL_SHIFT;
 		break;
+	case AW_A31_AHB:
+		DEVICE_LOCK(sc);
+		AHBCLK_READ(sc, &val);
+		DEVICE_UNLOCK(sc);
+		index = (val & A31_AHB1_CLK_SRC_SEL) >>
+		    A31_AHB1_CLK_SRC_SEL_SHIFT;
+		break;
 	default:
 		return (ENXIO);
 	}
@@ -109,7 +125,7 @@ static int
 aw_ahbclk_recalc_freq(struct clknode *clk, uint64_t *freq)
 {
 	struct aw_ahbclk_sc *sc;
-	uint32_t val, div;
+	uint32_t val, src_sel, div, pre_div;
 
 	sc = clknode_get_softc(clk);
 
@@ -120,7 +136,23 @@ aw_ahbclk_recalc_freq(struct clknode *clk, uint64_t *freq)
 	div = 1 << ((val & A10_AHB_CLK_DIV_RATIO) >>
 	    A10_AHB_CLK_DIV_RATIO_SHIFT);
 
-	*freq = *freq / div;
+	switch (sc->type) {
+	case AW_A31_AHB:
+		src_sel = (val & A31_AHB1_CLK_SRC_SEL) >>
+		    A31_AHB1_CLK_SRC_SEL_SHIFT;
+		if (src_sel == A31_AHB1_CLK_SRC_SEL_PLL6)
+			pre_div = ((val & A31_AHB1_PRE_DIV) >>
+			    A31_AHB1_PRE_DIV_SHIFT) + 1;
+		else
+			pre_div = 1;
+		break;
+	default:
+		pre_div = 1;
+		break;
+	}
+
+	*freq = *freq / pre_div / div;
+
 	return (0);
 }
 

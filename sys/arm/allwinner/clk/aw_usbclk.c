@@ -51,15 +51,22 @@ __FBSDID("$FreeBSD$");
 #include "clkdev_if.h"
 #include "hwreset_if.h"
 
-#define	SCLK_GATING_USBPHY	(1 << 8)
-#define	SCLK_GATING_OHCI1	(1 << 7)
-#define	SCLK_GATING_OHCI0	(1 << 6)
+#define	A10_SCLK_GATING_USBPHY	(1 << 8)
+#define	A10_SCLK_GATING_OHCI1	(1 << 7)
+#define	A10_SCLK_GATING_OHCI0	(1 << 6)
+
 #define	USBPHY2_RST		(1 << 2)
 #define	USBPHY1_RST		(1 << 1)
 #define	USBPHY0_RST		(1 << 0)
 
+enum aw_usbclk_type {
+	AW_A10_USBCLK = 1,
+	AW_A31_USBCLK,
+};
+
 static struct ofw_compat_data compat_data[] = {
-	{ "allwinner,sun4i-a10-usb-clk",	1 },
+	{ "allwinner,sun4i-a10-usb-clk",	AW_A10_USBCLK },
+	{ "allwinner,sun6i-a31-usb-clk",	AW_A31_USBCLK },
 	{ NULL, 0 }
 };
 
@@ -118,6 +125,9 @@ aw_usbclk_create(device_t dev, bus_addr_t paddr, struct clkdom *clkdom,
 {
 	const char *parent_names[1] = { pclkname };
 	struct clk_gate_def def;
+	enum aw_usbclk_type type;
+
+	type = ofw_bus_search_compatible(dev, compat_data)->ocd_data;
 
 	memset(&def, 0, sizeof(def));
 	def.clkdef.id = index;
@@ -125,7 +135,16 @@ aw_usbclk_create(device_t dev, bus_addr_t paddr, struct clkdom *clkdom,
 	def.clkdef.parent_names = parent_names;
 	def.clkdef.parent_cnt = 1;
 	def.offset = paddr;
-	def.shift = SCLK_GATING_OHCI0 << index;
+	switch (type) {
+	case AW_A10_USBCLK:
+		def.shift = A10_SCLK_GATING_OHCI0 << index;
+		break;
+	case AW_A31_USBCLK:
+		def.shift = index;
+		break;
+	default:
+		return (ENXIO);
+	}
 	def.mask = 1;
 	def.on_value = 1;
 	def.off_value = 0;
@@ -184,7 +203,8 @@ aw_usbclk_attach(device_t dev)
 
 	for (index = 0; index < nout; index++) {
 		error = aw_usbclk_create(dev, sc->reg, clkdom,
-		    clk_get_name(clk_parent), names[index], index);
+		    clk_get_name(clk_parent), names[index],
+		    indices != NULL ? indices[index] : index);
 		if (error)
 			goto fail;
 	}
