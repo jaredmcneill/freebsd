@@ -50,8 +50,6 @@ __FBSDID("$FreeBSD$");
 #define	AHB_CLK_SRC_SEL_WIDTH	2
 #define	AHB_CLK_SRC_SEL_SHIFT	6
 
-static const char *aw_ahbclk_srcs[] = { "axi", "pll6_div_4", "pll6_other" };
-
 static int
 aw_ahbclk_probe(device_t dev)
 {
@@ -70,10 +68,11 @@ aw_ahbclk_attach(device_t dev)
 {
 	struct clk_mux_def def;
 	struct clkdom *clkdom;
+	clk_t clk_parent;
 	bus_addr_t paddr;
 	bus_size_t psize;
 	phandle_t node;
-	int error;
+	int error, ncells, i;
 
 	node = ofw_bus_get_node(dev);
 
@@ -82,12 +81,29 @@ aw_ahbclk_attach(device_t dev)
 		return (ENXIO);
 	}
 
+	error = ofw_bus_parse_xref_list_get_length(node, "clocks",
+	    "#clock-cells", &ncells);
+	if (error != 0) {
+		device_printf(dev, "cannot get clock count\n");
+		return (error);
+	}
+
 	clkdom = clkdom_create(dev);
 
 	memset(&def, 0, sizeof(def));
 	def.clkdef.id = 1;
-	def.clkdef.parent_names = aw_ahbclk_srcs;
-	def.clkdef.parent_cnt = nitems(aw_ahbclk_srcs);
+	def.clkdef.parent_names = malloc(sizeof(char *) * ncells, M_OFWPROP,
+	    M_WAITOK);
+	for (i = 0; i < ncells; i++) {
+		error = clk_get_by_ofw_index(dev, i, &clk_parent);
+		if (error != 0) {
+			device_printf(dev, "cannot get clock %d\n", i);
+			goto fail;
+		}
+		def.clkdef.parent_names[i] = clk_get_name(clk_parent);
+		clk_release(clk_parent);
+	}
+	def.clkdef.parent_cnt = ncells;
 	def.offset = paddr;
 	def.shift = AHB_CLK_SRC_SEL_SHIFT;
 	def.width = AHB_CLK_SRC_SEL_WIDTH;
