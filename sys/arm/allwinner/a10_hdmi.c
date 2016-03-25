@@ -298,12 +298,7 @@ a10hdmi_attach(device_t dev)
 	if (error != 0) {
 		device_printf(dev, "cannot find lcd clock\n");
 	}
-	/* Set HDMI clock to 297 MHz */
-	error = clk_set_freq(sc->clk_hdmi, HDMI_DEFAULT_FREQ, 0);
-	if (error != 0) {
-		device_printf(dev, "cannot set hdmi clock frequency\n");
-		return (error);
-	}
+	/* Enable HDMI clock */
 	error = clk_enable(sc->clk_hdmi);
 	if (error != 0) {
 		device_printf(dev, "cannot enable hdmi clock\n");
