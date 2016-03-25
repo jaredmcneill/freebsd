@@ -277,9 +277,6 @@ a10_pll3_set_freq(struct aw_pll_sc *sc, uint64_t fin, uint64_t *fout,
 	if (sc->id == CLKID_A10_PLL3_2X)
 		*fout *= 2;
 
-	printf("%s: m=%d mode=%d func=%d fin=%llu fout=%llu\n", __func__,
-	    m, mode, func, fin, *fout);
-
 	DEVICE_LOCK(sc);
 	PLL_READ(sc, &val);
 	val &= ~(A10_PLL3_MODE_SEL | A10_PLL3_FUNC_SET | A10_PLL3_FACTOR_M);
