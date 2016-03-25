@@ -337,8 +337,8 @@ aw_lcdclk_set_freq(struct clknode *clk, uint64_t fin, uint64_t *fout,
 		calc_tcon_pll(TCON_PLLREF, *fout, &m, &n);
 		calc_tcon_pll(TCON_PLLREF * 2, *fout, &m2, &n2);
 
-		fsingle = n ? (m * TCON_PLLREF) / n : 0;
-		fdouble = n2 ? (m2 * TCON_PLLREF * 2) / n2 : 0;
+		fsingle = m ? (n * TCON_PLLREF) / m : 0;
+		fdouble = m2 ? (n2 * TCON_PLLREF * 2) / m2 : 0;
 
 		if (fdouble > fsingle) {
 			dbl = true;
