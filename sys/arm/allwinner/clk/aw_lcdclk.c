@@ -77,7 +77,7 @@ __FBSDID("$FreeBSD$");
 #define	CH1_CLK_DIV_RATIO_M		(0x1f << 0)
 #define	CH1_CLK_DIV_RATIO_M_SHIFT	0
 
-#define	TCON_PLLREF			3000000
+#define	TCON_PLLREF			3000000ULL
 #define	TCON_PLL_M_MIN			1
 #define	TCON_PLL_M_MAX			15
 #define	TCON_PLL_N_MIN			9
