@@ -300,7 +300,6 @@ calc_tcon_pll(uint64_t fin, uint64_t fout, uint32_t *pm, uint32_t *pn)
 			fcur = (n * fin) / m;
 			diff = (int64_t)fout - fcur;
 			if (diff > 0 && diff < best) {
-				printf("%s [%llu->%llu]: best %lld -> %lld, m=%d, n=%d\n", __func__, fin, fout, best, diff, m, n);
 				best = diff;
 				*pm = m;
 				*pn = n;
@@ -347,14 +346,11 @@ aw_lcdclk_set_freq(struct clknode *clk, uint64_t fin, uint64_t *fout,
 			n = n2;
 		}
 
-		printf("%s: m %u n %u dbl %d\n", __func__, m, n, dbl);
-
 		src_sel = dbl ? CH0_CLK_SRC_SEL_PLL3_2X :
 		    CH0_CLK_SRC_SEL_PLL3_1X;
 
 		/* Switch parent clock if necessary */
 		if (src_sel != clknode_get_parent_idx(clk)) {
-			printf("%s: switching to parent %d\n", __func__, src_sel);
 			error = clknode_set_parent_by_idx(clk, src_sel);
 			if (error != 0)
 				return (error);
@@ -362,7 +358,6 @@ aw_lcdclk_set_freq(struct clknode *clk, uint64_t fin, uint64_t *fout,
 
 		/* Set desired parent frequency */
 		fin = n * TCON_PLLREF;
-		printf("%s: setting parent freq %llu\n", __func__, fin);
 
 		error = clknode_set_freq(clknode_get_parent(clk), fin, 0, 0);
 		if (error != 0)
@@ -377,8 +372,6 @@ aw_lcdclk_set_freq(struct clknode *clk, uint64_t fin, uint64_t *fout,
 		if (error != 0)
 			return (error);
 
-		printf("%s: new parent input frequency %llu\n", __func__, fin);
-
 		/* Set LCD divisor */
 		DEVICE_LOCK(sc);
 		LCDCLK_READ(sc, &val);
@@ -387,12 +380,9 @@ aw_lcdclk_set_freq(struct clknode *clk, uint64_t fin, uint64_t *fout,
 		LCDCLK_WRITE(sc, val);
 		DEVICE_UNLOCK(sc);
 
-		printf("%s: requested output frequency %llu\n", __func__, *fout);
-
 		*fout = fin / m;
 		*stop = 1;
 
-		printf("%s: new output frequency %llu\n", __func__, *fout);
 		break;
 	}
 

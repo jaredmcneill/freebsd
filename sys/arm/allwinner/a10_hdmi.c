@@ -542,8 +542,6 @@ a10hdmi_get_tcon_config(struct a10hdmi_softc *sc, int *div, int *dbl)
 	else
 		*dbl = 1;
 
-	printf("%s: tcon div = %d, dbl = %d [%s]\n", __func__, *div, *dbl, pname);
-
 	return (0);
 }
 
