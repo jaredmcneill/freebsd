@@ -45,10 +45,124 @@ __FBSDID("$FreeBSD$");
 #include <dev/ofw/ofw_bus_subr.h>
 #include <dev/ofw/ofw_subr.h>
 
-#include <dev/extres/clk/clk_mux.h>
+#include <dev/extres/clk/clk.h>
 
-#define	AHB_CLK_SRC_SEL_WIDTH	2
-#define	AHB_CLK_SRC_SEL_SHIFT	6
+#include "clkdev_if.h"
+
+#define	A10_AHB_CLK_DIV_RATIO		(0x3 << 4)
+#define	A10_AHB_CLK_DIV_RATIO_SHIFT	4
+
+#define	A13_AHB_CLK_SRC_SEL		(0x3 << 6)
+#define	A13_AHB_CLK_SRC_SEL_MAX		3
+#define	A13_AHB_CLK_SRC_SEL_SHIFT	6
+
+enum aw_ahbclk_type {
+	AW_A10_AHB = 1,
+	AW_A13_AHB,
+};
+
+static struct ofw_compat_data compat_data[] = {
+	{ "allwinner,sun4i-a10-ahb-clk",	AW_A10_AHB },
+	{ "allwinner,sun5i-a13-ahb-clk",	AW_A13_AHB },
+	{ NULL, 0 }
+};
+
+struct aw_ahbclk_sc {
+	device_t		clkdev;
+	bus_addr_t		reg;
+	enum aw_ahbclk_type	type;
+};
+
+#define	AHBCLK_READ(sc, val)	CLKDEV_READ_4((sc)->clkdev, (sc)->reg, (val))
+#define	AHBCLK_WRITE(sc, val)	CLKDEV_WRITE_4((sc)->clkdev, (sc)->reg, (val))
+#define	DEVICE_LOCK(sc)		CLKDEV_DEVICE_LOCK((sc)->clkdev)
+#define	DEVICE_UNLOCK(sc)	CLKDEV_DEVICE_UNLOCK((sc)->clkdev)
+
+static int
+aw_ahbclk_init(struct clknode *clk, device_t dev)
+{
+	struct aw_ahbclk_sc *sc;
+	uint32_t val, index;
+
+	sc = clknode_get_softc(clk);
+
+	switch (sc->type) {
+	case AW_A10_AHB:
+		index = 0;
+		break;
+	case AW_A13_AHB:
+		DEVICE_LOCK(sc);
+		AHBCLK_READ(sc, &val);
+		DEVICE_UNLOCK(sc);
+		index = (val & A13_AHB_CLK_SRC_SEL) >>
+		    A13_AHB_CLK_SRC_SEL_SHIFT;
+		break;
+	default:
+		return (ENXIO);
+	}
+
+	clknode_init_parent_idx(clk, index);
+	return (0);
+}
+
+static int
+aw_ahbclk_recalc_freq(struct clknode *clk, uint64_t *freq)
+{
+	struct aw_ahbclk_sc *sc;
+	uint32_t val, div;
+
+	sc = clknode_get_softc(clk);
+
+	DEVICE_LOCK(sc);
+	AHBCLK_READ(sc, &val);
+	DEVICE_UNLOCK(sc);
+
+	div = 1 << ((val & A10_AHB_CLK_DIV_RATIO) >>
+	    A10_AHB_CLK_DIV_RATIO_SHIFT);
+
+	*freq = *freq / div;
+	return (0);
+}
+
+static int
+aw_ahbclk_set_mux(struct clknode *clk, int index)
+{
+	struct aw_ahbclk_sc *sc;
+	uint32_t val;
+
+	sc = clknode_get_softc(clk);
+
+	switch (sc->type) {
+	case AW_A10_AHB:
+		if (index != 0)
+			return (ERANGE);
+		break;
+	case AW_A13_AHB:
+		if (index < 0 || index >= A13_AHB_CLK_SRC_SEL_MAX)
+			return (ERANGE);
+		DEVICE_LOCK(sc);
+		AHBCLK_READ(sc, &val);
+		val &= ~A13_AHB_CLK_SRC_SEL;
+		val |= (index << A13_AHB_CLK_SRC_SEL_SHIFT);
+		AHBCLK_WRITE(sc, val);
+		DEVICE_UNLOCK(sc);
+		break;
+	default:
+		return (ENXIO);
+	}
+
+	return (0);
+}
+
+static clknode_method_t aw_ahbclk_clknode_methods[] = {
+	/* Device interface */
+	CLKNODEMETHOD(clknode_init,		aw_ahbclk_init),
+	CLKNODEMETHOD(clknode_recalc_freq,	aw_ahbclk_recalc_freq),
+	CLKNODEMETHOD(clknode_set_mux,		aw_ahbclk_set_mux),
+	CLKNODEMETHOD_END
+};
+DEFINE_CLASS_1(aw_ahbclk_clknode, aw_ahbclk_clknode_class,
+    aw_ahbclk_clknode_methods, sizeof(struct aw_ahbclk_sc), clknode_class);
 
 static int
 aw_ahbclk_probe(device_t dev)
@@ -56,7 +170,7 @@ aw_ahbclk_probe(device_t dev)
 	if (!ofw_bus_status_okay(dev))
 		return (ENXIO);
 
-	if (!ofw_bus_is_compatible(dev, "allwinner,sun5i-a13-ahb-clk"))
+	if (ofw_bus_search_compatible(dev, compat_data)->ocd_data == 0)
 		return (ENXIO);
 
 	device_set_desc(dev, "Allwinner AHB Clock");
@@ -66,8 +180,10 @@ aw_ahbclk_probe(device_t dev)
 static int
 aw_ahbclk_attach(device_t dev)
 {
-	struct clk_mux_def def;
+	struct clknode_init_def def;
+	struct aw_ahbclk_sc *sc;
 	struct clkdom *clkdom;
+	struct clknode *clk;
 	clk_t clk_parent;
 	bus_addr_t paddr;
 	bus_size_t psize;
@@ -91,8 +207,8 @@ aw_ahbclk_attach(device_t dev)
 	clkdom = clkdom_create(dev);
 
 	memset(&def, 0, sizeof(def));
-	def.clkdef.id = 1;
-	def.clkdef.parent_names = malloc(sizeof(char *) * ncells, M_OFWPROP,
+	def.id = 1;
+	def.parent_names = malloc(sizeof(char *) * ncells, M_OFWPROP,
 	    M_WAITOK);
 	for (i = 0; i < ncells; i++) {
 		error = clk_get_by_ofw_index(dev, i, &clk_parent);
@@ -100,27 +216,30 @@ aw_ahbclk_attach(device_t dev)
 			device_printf(dev, "cannot get clock %d\n", i);
 			goto fail;
 		}
-		def.clkdef.parent_names[i] = clk_get_name(clk_parent);
+		def.parent_names[i] = clk_get_name(clk_parent);
 		clk_release(clk_parent);
 	}
-	def.clkdef.parent_cnt = ncells;
-	def.offset = paddr;
-	def.shift = AHB_CLK_SRC_SEL_SHIFT;
-	def.width = AHB_CLK_SRC_SEL_WIDTH;
+	def.parent_cnt = ncells;
 
-	error = clk_parse_ofw_clk_name(dev, node, &def.clkdef.name);
+	error = clk_parse_ofw_clk_name(dev, node, &def.name);
 	if (error != 0) {
 		device_printf(dev, "cannot parse clock name\n");
 		error = ENXIO;
 		goto fail;
 	}
 
-	error = clknode_mux_register(clkdom, &def);
-	if (error != 0) {
-		device_printf(dev, "cannot register mux clock\n");
+	clk = clknode_create(clkdom, &aw_ahbclk_clknode_class, &def);
+	if (clk == NULL) {
+		device_printf(dev, "cannot create clknode\n");
 		error = ENXIO;
 		goto fail;
 	}
+	sc = clknode_get_softc(clk);
+	sc->type = ofw_bus_search_compatible(dev, compat_data)->ocd_data;
+	sc->reg = paddr;
+	sc->clkdev = device_get_parent(dev);
+
+	clknode_register(clkdom, clk);
 
 	if (clkdom_finit(clkdom) != 0) {
 		device_printf(dev, "cannot finalize clkdom initialization\n");
@@ -128,15 +247,12 @@ aw_ahbclk_attach(device_t dev)
 		goto fail;
 	}
 
-	free(__DECONST(char *, def.clkdef.name), M_OFWPROP);
-
 	if (bootverbose)
 		clkdom_dump(clkdom);
 
 	return (0);
 
 fail:
-	free(__DECONST(char *, def.clkdef.name), M_OFWPROP);
 	return (error);
 }
 
