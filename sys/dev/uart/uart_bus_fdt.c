@@ -77,7 +77,7 @@ struct uart_fdt_softc {
 static driver_t uart_fdt_driver = {
 	uart_driver_name,
 	uart_fdt_methods,
-	sizeof(struct uart_fdt_softc),
+	sizeof(struct uart_softc),
 };
 
 #ifdef EXT_RESOURCES
