@@ -130,7 +130,7 @@ struct aw_pll_sc {
 struct aw_pll_funcs {
 	int	(*recalc)(struct aw_pll_sc *, uint64_t *);
 	int	(*set_freq)(struct aw_pll_sc *, uint64_t, uint64_t *, int);
-	int	(*init)(struct clknode_init_def *);
+	int	(*init)(device_t, bus_addr_t, struct clknode_init_def *);
 };
 
 #define	PLL_READ(sc, val)	CLKDEV_READ_4((sc)->clkdev, (sc)->reg, (val))
@@ -302,9 +302,21 @@ a10_pll3_set_freq(struct aw_pll_sc *sc, uint64_t fin, uint64_t *fout,
 }
 
 static int
-a10_pll3_init(struct clknode_init_def *def)
+a10_pll3_init(device_t dev, bus_addr_t reg, struct clknode_init_def *def)
 {
+	uint32_t val;
+
+	/* Allow changing PLL frequency while enabled */
 	def->flags = CLK_NODE_GLITCH_FREE;
+
+	/* Set PLL to 297MHz */
+	CLKDEV_DEVICE_LOCK(dev);
+	CLKDEV_READ_4(dev, reg, &val);
+	val &= ~(A10_PLL3_MODE_SEL | A10_PLL3_FUNC_SET | A10_PLL3_FACTOR_M);
+	val |= A10_PLL3_MODE_SEL_FRACT;
+	val |= A10_PLL3_FUNC_SET_297MHZ;
+	CLKDEV_WRITE_4(dev, reg, val);
+	CLKDEV_DEVICE_UNLOCK(dev);
 
 	return (0);
 }
@@ -524,7 +536,8 @@ aw_pll_create(device_t dev, bus_addr_t paddr, struct clkdom *clkdom,
 		clkdef.parent_cnt = 0;
 
 	if (aw_pll_func[type].init != NULL) {
-		error = aw_pll_func[type].init(&clkdef);
+		error = aw_pll_func[type].init(device_get_parent(dev),
+		    paddr, &clkdef);
 		if (error != 0) {
 			device_printf(dev, "clock %s init failed\n", clkname);
 			return (error);
