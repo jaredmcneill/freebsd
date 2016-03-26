@@ -66,13 +66,13 @@ __FBSDID("$FreeBSD$");
 enum aw_ahbclk_type {
 	AW_A10_AHB = 1,
 	AW_A13_AHB,
-	AW_A31_AHB,
+	AW_A31_AHB1,
 };
 
 static struct ofw_compat_data compat_data[] = {
 	{ "allwinner,sun4i-a10-ahb-clk",	AW_A10_AHB },
 	{ "allwinner,sun5i-a13-ahb-clk",	AW_A13_AHB },
-	{ "allwinner,sun6i-a31-ahb-clk",	AW_A31_AHB },
+	{ "allwinner,sun6i-a31-ahb1-clk",	AW_A31_AHB1 },
 	{ NULL, 0 }
 };
 
@@ -106,7 +106,7 @@ aw_ahbclk_init(struct clknode *clk, device_t dev)
 		index = (val & A13_AHB_CLK_SRC_SEL) >>
 		    A13_AHB_CLK_SRC_SEL_SHIFT;
 		break;
-	case AW_A31_AHB:
+	case AW_A31_AHB1:
 		DEVICE_LOCK(sc);
 		AHBCLK_READ(sc, &val);
 		DEVICE_UNLOCK(sc);
@@ -137,7 +137,7 @@ aw_ahbclk_recalc_freq(struct clknode *clk, uint64_t *freq)
 	    A10_AHB_CLK_DIV_RATIO_SHIFT);
 
 	switch (sc->type) {
-	case AW_A31_AHB:
+	case AW_A31_AHB1:
 		src_sel = (val & A31_AHB1_CLK_SRC_SEL) >>
 		    A31_AHB1_CLK_SRC_SEL_SHIFT;
 		if (src_sel == A31_AHB1_CLK_SRC_SEL_PLL6)
