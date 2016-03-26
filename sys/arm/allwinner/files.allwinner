@@ -25,6 +25,7 @@ arm/allwinner/a10_hdmi.c		optional	hdmi
 arm/allwinner/a10_hdmiaudio.c		optional	hdmi sound
 arm/arm/hdmi_if.m			optional	hdmi
 
+arm/allwinner/aw_reset.c		standard
 arm/allwinner/aw_ccu.c			standard
 arm/allwinner/clk/aw_ahbclk.c		standard
 arm/allwinner/clk/aw_apbclk.c		standard
