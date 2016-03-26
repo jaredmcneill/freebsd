@@ -108,21 +108,23 @@ UART_FDT_CLASS(compat_data);
 
 #ifdef EXT_RESOURCES
 static int
-snps_get_clocks(device_t dev)
+snps_get_clocks(device_t dev, clk_t *baudclk, clk_t *apb_pclk)
 {
 	struct snps_softc *sc;
 
 	sc = device_get_softc(dev);
+	*baudclk = NULL;
+	*apb_pclk = NULL;
 
 	/* Baud clock is either named "baudclk", or there is a single
 	 * unnamed clock.
 	 */
-	if (clk_get_by_ofw_name(dev, "baudclk", &sc->baudclk) != 0 &&
-	    clk_get_by_ofw_index(dev, 0, &sc->baudclk) != 0)
+	if (clk_get_by_ofw_name(dev, "baudclk", baudclk) != 0 &&
+	    clk_get_by_ofw_index(dev, 0, baudclk) != 0)
 		return (ENOENT);
 
 	/* APB peripheral clock is optional */
-	(void)clk_get_by_ofw_name(dev, "apb_pclk", &sc->apb_pclk);
+	(void)clk_get_by_ofw_name(dev, "apb_pclk", apb_pclk);
 
 	return (0);
 }
@@ -137,6 +139,10 @@ snps_probe(device_t dev)
 	uint32_t shift, clock;
 	uint64_t freq;
 	int error;
+#ifdef EXT_RESOURCES
+	clk_t baudclk, apb_pclk;
+	hwreset_t reset;
+#endif
 
 	if (!ofw_bus_status_okay(dev))
 		return (ENXIO);
@@ -157,22 +163,22 @@ snps_probe(device_t dev)
 		clock = 0;
 
 #ifdef EXT_RESOURCES
-	if (hwreset_get_by_ofw_idx(dev, 0, &sc->reset) == 0) {
-		error = hwreset_deassert(sc->reset);
+	if (hwreset_get_by_ofw_idx(dev, 0, &reset) == 0) {
+		error = hwreset_deassert(reset);
 		if (error != 0) {
 			device_printf(dev, "cannot de-assert reset\n");
 			return (error);
 		}
 	}
 
-	if (snps_get_clocks(dev) == 0) {
-		error = clk_enable(sc->baudclk);
+	if (snps_get_clocks(dev, &baudclk, &apb_pclk) == 0) {
+		error = clk_enable(baudclk);
 		if (error != 0) {
 			device_printf(dev, "cannot enable baud clock\n");
 			return (error);
 		}
-		if (sc->apb_pclk != NULL) {
-			error = clk_enable(sc->apb_pclk);
+		if (apb_pclk != NULL) {
+			error = clk_enable(apb_pclk);
 			if (error != 0) {
 				device_printf(dev,
 				    "cannot enable peripheral clock\n");
@@ -181,7 +187,7 @@ snps_probe(device_t dev)
 		}
 
 		if (clock == 0) {
-			error = clk_get_freq(sc->baudclk, &freq);
+			error = clk_get_freq(baudclk, &freq);
 			if (error != 0) {
 				device_printf(dev, "cannot get frequency\n");
 				return (error);
@@ -194,7 +200,21 @@ snps_probe(device_t dev)
 	if (bootverbose && clock == 0)
 		device_printf(dev, "could not determine frequency\n");
 
-	return (uart_bus_probe(dev, (int)shift, (int)clock, 0, 0));
+	error = uart_bus_probe(dev, (int)shift, (int)clock, 0, 0);
+	if (error != 0)
+		return (error);
+
+#ifdef EXT_RESOURCES
+	/* XXX uart_bus_probe has changed the softc, so refresh it */
+	sc = device_get_softc(dev);
+
+	/* Store clock and reset handles for detach */
+	sc->baudclk = baudclk;
+	sc->apb_pclk = apb_pclk;
+	sc->reset = reset;
+#endif
+
+	return (0);
 }
 
 static int
@@ -202,42 +222,49 @@ snps_detach(device_t dev)
 {
 #ifdef EXT_RESOURCES
 	struct snps_softc *sc;
+	clk_t baudclk, apb_pclk;
+	hwreset_t reset;
 #endif
 	int error;
+
+#ifdef EXT_RESOURCES
+	sc = device_get_softc(dev);
+	baudclk = sc->baudclk;
+	apb_pclk = sc->apb_pclk;
+	reset = sc->reset;
+#endif
 
 	error = uart_bus_detach(dev);
 	if (error != 0)
 		return (error);
 
 #ifdef EXT_RESOURCES
-	sc = device_get_softc(dev);
-
-	if (sc->reset != NULL) {
-		error = hwreset_assert(sc->reset);
+	if (reset != NULL) {
+		error = hwreset_assert(reset);
 		if (error != 0) {
 			device_printf(dev, "cannot assert reset\n");
 			return (error);
 		}
-		hwreset_release(sc->reset);
+		hwreset_release(reset);
 	}
-	if (sc->apb_pclk != NULL) {
-		error = clk_disable(sc->apb_pclk);
+	if (apb_pclk != NULL) {
+		error = clk_disable(apb_pclk);
 		if (error != 0) {
 			device_printf(dev, "cannot disable peripheral clock\n");
 			return (error);
 		}
-		error = clk_release(sc->apb_pclk);
+		error = clk_release(apb_pclk);
 		if (error != 0) {
 			device_printf(dev, "cannot release peripheral clock\n");
 		}
 	}
-	if (sc->baudclk != NULL) {
-		error = clk_disable(sc->baudclk);
+	if (baudclk != NULL) {
+		error = clk_disable(baudclk);
 		if (error != 0) {
 			device_printf(dev, "cannot disable baud clock\n");
 			return (error);
 		}
-		error = clk_release(sc->baudclk);
+		error = clk_release(baudclk);
 		if (error != 0) {
 			device_printf(dev, "cannot release baud clock\n");
 			return (error);
