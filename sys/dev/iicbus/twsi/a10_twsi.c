@@ -49,6 +49,7 @@ __FBSDID("$FreeBSD$");
 #include <dev/ofw/ofw_bus_subr.h>
 
 #include <dev/extres/clk/clk.h>
+#include <dev/extres/hwreset/hwreset.h>
 
 #include "iicbus_if.h"
 
@@ -87,9 +88,19 @@ a10_twsi_attach(device_t dev)
 {
 	struct twsi_softc *sc;
 	clk_t clk;
+	hwreset_t rst;
 	int error;
 
 	sc = device_get_softc(dev);
+
+	/* De-assert reset */
+	if (hwreset_get_by_ofw_idx(dev, 0, &rst) == 0) {
+		error = hwreset_deassert(rst);
+		if (error != 0) {
+			device_printf(dev, "could not de-assert reset\n");
+			return (error);
+		}
+	}
 
 	/* Activate clock */
 	error = clk_get_by_ofw_index(dev, 0, &clk);

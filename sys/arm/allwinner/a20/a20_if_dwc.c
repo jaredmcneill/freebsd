@@ -42,6 +42,7 @@ __FBSDID("$FreeBSD$");
 
 #include <arm/allwinner/allwinner_machdep.h>
 #include <dev/extres/clk/clk.h>
+#include <dev/extres/hwreset/hwreset.h>
 
 #include "if_dwc_if.h"
 
@@ -64,10 +65,20 @@ a20_if_dwc_init(device_t dev)
 	const char *tx_parent_name;
 	char *phy_type;
 	clk_t clk_gate, clk_tx, clk_tx_parent;
+	hwreset_t rst;
 	phandle_t node;
 	int error;
 
 	node = ofw_bus_get_node(dev);
+
+	/* De-assert reset */
+	if (hwreset_get_by_ofw_name(dev, "stmmaceth", &rst) == 0) {
+		error = hwreset_deassert(rst);
+		if (error != 0) {
+			device_printf(dev, "could not de-assert reset\n");
+			return (error);
+		}
+	}
 
 	/* Enable GMAC clock */
 	error = clk_get_by_ofw_name(dev, "stmmaceth", &clk_gate);

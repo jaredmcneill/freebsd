@@ -60,6 +60,7 @@ __FBSDID("$FreeBSD$");
 
 #include <arm/allwinner/allwinner_machdep.h>
 #include <dev/extres/clk/clk.h>
+#include <dev/extres/hwreset/hwreset.h>
 
 #define EHCI_HC_DEVSTR			"Allwinner Integrated USB 2.0 controller"
 
@@ -92,6 +93,7 @@ bs_w_1_proto(reversed);
 struct aw_ehci_softc {
 	ehci_softc_t	sc;
 	clk_t		clk;
+	hwreset_t	rst;
 };
 
 struct aw_ehci_conf {
@@ -199,6 +201,15 @@ a10_ehci_attach(device_t self)
 	}
 
 	sc->sc_flags |= EHCI_SCFLG_DONTRESET;
+
+	/* De-assert reset */
+	if (hwreset_get_by_ofw_idx(self, 0, &aw_sc->rst) == 0) {
+		err = hwreset_deassert(aw_sc->rst);
+		if (err != 0) {
+			device_printf(self, "Could not de-assert reset\n");
+			goto error;
+		}
+	}
 
 	/* Enable clock for USB */
 	err = clk_get_by_ofw_index(self, 0, &aw_sc->clk);
@@ -308,6 +319,12 @@ a10_ehci_detach(device_t self)
 	/* Disable clock for USB */
 	clk_disable(aw_sc->clk);
 	clk_release(aw_sc->clk);
+
+	/* Assert reset */
+	if (aw_sc->rst != NULL) {
+		hwreset_assert(aw_sc->rst);
+		hwreset_release(aw_sc->rst);
+	}
 
 	return (0);
 }

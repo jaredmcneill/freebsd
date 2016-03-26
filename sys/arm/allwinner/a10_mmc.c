@@ -51,6 +51,7 @@ __FBSDID("$FreeBSD$");
 #include <arm/allwinner/allwinner_machdep.h>
 #include <arm/allwinner/a10_mmc.h>
 #include <dev/extres/clk/clk.h>
+#include <dev/extres/hwreset/hwreset.h>
 
 #define	A10_MMC_MEMRES		0
 #define	A10_MMC_IRQRES		1
@@ -77,6 +78,7 @@ struct a10_mmc_softc {
 	device_t		a10_dev;
 	clk_t			a10_clk_ahb;
 	clk_t			a10_clk_mmc;
+	hwreset_t		a10_rst_ahb;
 	int			a10_bus_busy;
 	int			a10_id;
 	int			a10_resid;
@@ -190,6 +192,15 @@ a10_mmc_attach(device_t dev)
 	default:
 		sc->a10_fifo_reg = A31_MMC_FIFO;
 		break;
+	}
+
+	/* De-assert reset */
+	if (hwreset_get_by_ofw_name(dev, "ahb", &sc->a10_rst_ahb) == 0) {
+		error = hwreset_deassert(sc->a10_rst_ahb);
+		if (error != 0) {
+			device_printf(dev, "cannot de-assert reset\n");
+			return (error);
+		}
 	}
 
 	/* Activate the module clock. */
