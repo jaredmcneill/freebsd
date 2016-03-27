@@ -281,3 +281,4 @@ static driver_t snps_uart_driver = {
 };
 
 DRIVER_MODULE(uart_snps, simplebus, snps_uart_driver, uart_devclass, 0, 0);
+DRIVER_MODULE(uart_snps, ofwbus, snps_uart_driver, uart_devclass, 0, 0);
