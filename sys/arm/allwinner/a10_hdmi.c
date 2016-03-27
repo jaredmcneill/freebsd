@@ -195,7 +195,7 @@ __FBSDID("$FreeBSD$");
 #define	CEA_TAG_ID		0x02
 #define	CEA_DTD			0x03
 #define	DTD_BASIC_AUDIO		(1 << 6)
-#define HDMI_DEFAULT_FREQ	297000000
+#define	HDMI_DEFAULT_FREQ	297000000
 
 struct a10hdmi_softc {
 	struct resource		*res;
