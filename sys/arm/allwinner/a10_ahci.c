@@ -300,6 +300,8 @@ ahci_a10_attach(device_t dev)
 	clk_t clk_pll, clk_gate;
 
 	ctlr = device_get_softc(dev);
+	clk_pll = clk_gate = NULL;
+
 	ctlr->quirks = AHCI_Q_NOPMP;
 	ctlr->vendorid = 0;
 	ctlr->deviceid = 0;
@@ -316,6 +318,11 @@ ahci_a10_attach(device_t dev)
 		device_printf(dev, "Cannot get PLL clock\n");
 		goto fail;
 	}
+	error = clk_get_by_ofw_index(dev, 1, &clk_gate);
+	if (error != 0) {
+		device_printf(dev, "Cannot get gate clock\n");
+		goto fail;
+	}
 	error = clk_set_freq(clk_pll, PLL_FREQ, CLK_SET_ROUND_DOWN);
 	if (error != 0) {
 		device_printf(dev, "Cannot set PLL frequency\n");
@@ -324,11 +331,6 @@ ahci_a10_attach(device_t dev)
 	error = clk_enable(clk_pll);
 	if (error != 0) {
 		device_printf(dev, "Cannot enable PLL\n");
-		goto fail;
-	}
-	error = clk_get_by_ofw_index(dev, 1, &clk_gate);
-	if (error != 0) {
-		device_printf(dev, "Cannot get gate clock\n");
 		goto fail;
 	}
 	error = clk_enable(clk_gate);
@@ -356,6 +358,10 @@ ahci_a10_attach(device_t dev)
 	return (ahci_attach(dev));
 
 fail:
+	if (clk_gate != NULL)
+		clk_release(clk_gate);
+	if (clk_pll != NULL)
+		clk_release(clk_pll);
 	bus_release_resource(dev, SYS_RES_MEMORY, ctlr->r_rid, ctlr->r_mem);
 	return (error);
 }
