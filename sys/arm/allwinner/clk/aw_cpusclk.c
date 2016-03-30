@@ -27,7 +27,7 @@
  */
 
 /*
- * Allwinner AHB clock
+ * Allwinner CPUS clock
  */
 
 #include <sys/cdefs.h>
@@ -49,82 +49,53 @@ __FBSDID("$FreeBSD$");
 
 #include "clkdev_if.h"
 
-#define	A10_AHB_CLK_DIV_RATIO		(0x3 << 4)
-#define	A10_AHB_CLK_DIV_RATIO_SHIFT	4
+#define	A80_CPUS_CLK_SRC_SEL		(0x3 << 16)
+#define	A80_CPUS_CLK_SRC_SEL_SHIFT	16
+#define	A80_CPUS_CLK_SRC_SEL_OSC24M	1
+#define	A80_CPUS_CLK_SRC_SEL_PLL_PERIPH	2
+#define	A80_CPUS_POST_DIV		(0x1f << 8)
+#define	A80_CPUS_POST_DIV_SHIFT		8
+#define	A80_CPUS_CLK_RATIO		(0x3 << 4)
+#define	A80_CPUS_CLK_RATIO_SHIFT	4
 
-#define	A13_AHB_CLK_SRC_SEL		(0x3 << 6)
-#define	A13_AHB_CLK_SRC_SEL_MAX		3
-#define	A13_AHB_CLK_SRC_SEL_SHIFT	6
-
-#define	A31_AHB1_PRE_DIV		(0x3 << 6)
-#define	A31_AHB1_PRE_DIV_SHIFT		6
-#define	A31_AHB1_CLK_SRC_SEL		(0x3 << 12)
-#define	A31_AHB1_CLK_SRC_SEL_PLL6	3
-#define	A31_AHB1_CLK_SRC_SEL_MAX	3
-#define	A31_AHB1_CLK_SRC_SEL_SHIFT	12
-
-#define	H3_AHB2_CLK_CFG			(0x3 << 0)
-#define	H3_AHB2_CLK_CFG_SHIFT		0
-#define	H3_AHB2_CLK_CFG_AHB1		0
-#define	H3_AHB2_CLK_CFG_PLL_PERIPH_DIV2	1
-#define	H3_AHB2_CLK_CFG_MAX		1
-
-enum aw_ahbclk_type {
-	AW_A10_AHB = 1,
-	AW_A13_AHB,
-	AW_A31_AHB1,
-	AW_H3_AHB2,
+enum aw_cpusclk_type {
+	AW_A80_CPUS = 1,
 };
 
 static struct ofw_compat_data compat_data[] = {
-	{ "allwinner,sun4i-a10-ahb-clk",	AW_A10_AHB },
-	{ "allwinner,sun5i-a13-ahb-clk",	AW_A13_AHB },
-	{ "allwinner,sun6i-a31-ahb1-clk",	AW_A31_AHB1 },
+	{ "allwinner,sun9i-a80-cpus-clk",	AW_A80_CPUS },
 	{ NULL, 0 }
 };
 
-struct aw_ahbclk_sc {
+struct aw_cpusclk_sc {
 	device_t		clkdev;
 	bus_addr_t		reg;
-	enum aw_ahbclk_type	type;
+	enum aw_cpusclk_type	type;
 };
 
-#define	AHBCLK_READ(sc, val)	CLKDEV_READ_4((sc)->clkdev, (sc)->reg, (val))
-#define	AHBCLK_WRITE(sc, val)	CLKDEV_WRITE_4((sc)->clkdev, (sc)->reg, (val))
+#define	CPUSCLK_READ(sc, val)	CLKDEV_READ_4((sc)->clkdev, (sc)->reg, (val))
+#define	CPUSCLK_WRITE(sc, val)	CLKDEV_WRITE_4((sc)->clkdev, (sc)->reg, (val))
 #define	DEVICE_LOCK(sc)		CLKDEV_DEVICE_LOCK((sc)->clkdev)
 #define	DEVICE_UNLOCK(sc)	CLKDEV_DEVICE_UNLOCK((sc)->clkdev)
 
 static int
-aw_ahbclk_init(struct clknode *clk, device_t dev)
+aw_cpusclk_init(struct clknode *clk, device_t dev)
 {
-	struct aw_ahbclk_sc *sc;
+	struct aw_cpusclk_sc *sc;
 	uint32_t val, index;
 
 	sc = clknode_get_softc(clk);
 
 	switch (sc->type) {
-	case AW_A10_AHB:
-		index = 0;
-		break;
-	case AW_A13_AHB:
+	case AW_A80_CPUS:
 		DEVICE_LOCK(sc);
-		AHBCLK_READ(sc, &val);
+		CPUSCLK_READ(sc, &val);
 		DEVICE_UNLOCK(sc);
-		index = (val & A13_AHB_CLK_SRC_SEL) >>
-		    A13_AHB_CLK_SRC_SEL_SHIFT;
-		break;
-	case AW_A31_AHB1:
-		DEVICE_LOCK(sc);
-		AHBCLK_READ(sc, &val);
-		DEVICE_UNLOCK(sc);
-		index = (val & A31_AHB1_CLK_SRC_SEL) >>
-		    A31_AHB1_CLK_SRC_SEL_SHIFT;
-		break;
-	case AW_H3_AHB2:
-		DEVICE_LOCK(sc);
-		AHBCLK_READ(sc, &val);
-		DEVICE_UNLOCK(sc);
-		index = (val & H3_AHB2_CLK_CFG) >> H3_AHB2_CLK_CFG_SHIFT;
+		index = (val & A80_CPUS_CLK_SRC_SEL) >>
+		    A80_CPUS_CLK_SRC_SEL_SHIFT;
+
+		/* XXX DT lists two clock sources but there are 4 possible */
+		index = (index == A80_CPUS_CLK_SRC_SEL_OSC24M) ? 0 : 1;
 		break;
 	default:
 		return (ENXIO);
@@ -135,80 +106,61 @@ aw_ahbclk_init(struct clknode *clk, device_t dev)
 }
 
 static int
-aw_ahbclk_recalc_freq(struct clknode *clk, uint64_t *freq)
+aw_cpusclk_recalc_freq(struct clknode *clk, uint64_t *freq)
 {
-	struct aw_ahbclk_sc *sc;
-	uint32_t val, src_sel, div, pre_div;
+	struct aw_cpusclk_sc *sc;
+	uint32_t val, src_sel, post_div, clk_ratio;
 
 	sc = clknode_get_softc(clk);
 
 	DEVICE_LOCK(sc);
-	AHBCLK_READ(sc, &val);
+	CPUSCLK_READ(sc, &val);
 	DEVICE_UNLOCK(sc);
 
 	switch (sc->type) {
-	case AW_A31_AHB1:
-		div = 1 << ((val & A10_AHB_CLK_DIV_RATIO) >>
-		    A10_AHB_CLK_DIV_RATIO_SHIFT);
-		src_sel = (val & A31_AHB1_CLK_SRC_SEL) >>
-		    A31_AHB1_CLK_SRC_SEL_SHIFT;
-		if (src_sel == A31_AHB1_CLK_SRC_SEL_PLL6)
-			pre_div = ((val & A31_AHB1_PRE_DIV) >>
-			    A31_AHB1_PRE_DIV_SHIFT) + 1;
+	case AW_A80_CPUS:
+		src_sel = (val & A80_CPUS_CLK_SRC_SEL) >>
+		    A80_CPUS_CLK_SRC_SEL_SHIFT;
+		post_div = (val & A80_CPUS_POST_DIV) >>
+		    A80_CPUS_POST_DIV_SHIFT;
+		clk_ratio = (val & A80_CPUS_CLK_RATIO) >>
+		    A80_CPUS_CLK_RATIO_SHIFT;
+		if (src_sel == A80_CPUS_CLK_SRC_SEL_PLL_PERIPH)
+			*freq = *freq / post_div / clk_ratio;
 		else
-			pre_div = 1;
-		break;
-	case AW_H3_AHB2:
-		src_sel = (val & H3_AHB2_CLK_CFG) >> H3_AHB2_CLK_CFG_SHIFT;
-		if (src_sel == H3_AHB2_CLK_CFG_PLL_PERIPH_DIV2)
-			div = 2;
-		else
-			div = 1;
-		pre_div = 1;
+			*freq = *freq / clk_ratio;
 		break;
 	default:
-		div = 1 << ((val & A10_AHB_CLK_DIV_RATIO) >>
-		    A10_AHB_CLK_DIV_RATIO_SHIFT);
-		pre_div = 1;
-		break;
+		return (EINVAL);
 	}
-
-	*freq = *freq / pre_div / div;
 
 	return (0);
 }
 
 static int
-aw_ahbclk_set_mux(struct clknode *clk, int index)
+aw_cpusclk_set_mux(struct clknode *clk, int index)
 {
-	struct aw_ahbclk_sc *sc;
+	struct aw_cpusclk_sc *sc;
 	uint32_t val;
 
 	sc = clknode_get_softc(clk);
 
 	switch (sc->type) {
-	case AW_A10_AHB:
-		if (index != 0)
+	case AW_A80_CPUS:
+		if (index < 0 || index > 1)
 			return (ERANGE);
-		break;
-	case AW_A13_AHB:
-		if (index < 0 || index >= A13_AHB_CLK_SRC_SEL_MAX)
-			return (ERANGE);
+
 		DEVICE_LOCK(sc);
-		AHBCLK_READ(sc, &val);
-		val &= ~A13_AHB_CLK_SRC_SEL;
-		val |= (index << A13_AHB_CLK_SRC_SEL_SHIFT);
-		AHBCLK_WRITE(sc, val);
-		DEVICE_UNLOCK(sc);
-		break;
-	case AW_H3_AHB2:
-		if (index < 0 || index > H3_AHB2_CLK_CFG)
-			return (ERANGE);
-		DEVICE_LOCK(sc);
-		AHBCLK_READ(sc, &val);
+		CPUSCLK_READ(sc, &val);
 		val &= ~H3_AHB2_CLK_CFG;
-		val |= (index << H3_AHB2_CLK_CFG_SHIFT);
-		AHBCLK_WRITE(sc, val);
+		/* XXX DT lists two clock sources but there are 4 possible */
+		if (index == 0)
+			val |= (A80_CPUS_CLK_SRC_SEL_OSC24M
+			    << A80_CPUS_CLK_SRC_SEL_SHIFT);
+		else
+			val |= (A80_CPUS_CLK_SRC_SEL_PLL_PERIPH
+			    << A80_CPUS_CLK_SRC_SEL_SHIFT);
+		CPUSCLK_WRITE(sc, val);
 		DEVICE_UNLOCK(sc);
 		break;
 	default:
@@ -218,18 +170,18 @@ aw_ahbclk_set_mux(struct clknode *clk, int index)
 	return (0);
 }
 
-static clknode_method_t aw_ahbclk_clknode_methods[] = {
+static clknode_method_t aw_cpusclk_clknode_methods[] = {
 	/* Device interface */
-	CLKNODEMETHOD(clknode_init,		aw_ahbclk_init),
-	CLKNODEMETHOD(clknode_recalc_freq,	aw_ahbclk_recalc_freq),
-	CLKNODEMETHOD(clknode_set_mux,		aw_ahbclk_set_mux),
+	CLKNODEMETHOD(clknode_init,		aw_cpusclk_init),
+	CLKNODEMETHOD(clknode_recalc_freq,	aw_cpusclk_recalc_freq),
+	CLKNODEMETHOD(clknode_set_mux,		aw_cpusclk_set_mux),
 	CLKNODEMETHOD_END
 };
-DEFINE_CLASS_1(aw_ahbclk_clknode, aw_ahbclk_clknode_class,
-    aw_ahbclk_clknode_methods, sizeof(struct aw_ahbclk_sc), clknode_class);
+DEFINE_CLASS_1(aw_cpusclk_clknode, aw_cpusclk_clknode_class,
+    aw_cpusclk_clknode_methods, sizeof(struct aw_cpusclk_sc), clknode_class);
 
 static int
-aw_ahbclk_probe(device_t dev)
+aw_cpusclk_probe(device_t dev)
 {
 	if (!ofw_bus_status_okay(dev))
 		return (ENXIO);
@@ -242,10 +194,10 @@ aw_ahbclk_probe(device_t dev)
 }
 
 static int
-aw_ahbclk_attach(device_t dev)
+aw_cpusclk_attach(device_t dev)
 {
 	struct clknode_init_def def;
-	struct aw_ahbclk_sc *sc;
+	struct aw_cpusclk_sc *sc;
 	struct clkdom *clkdom;
 	struct clknode *clk;
 	clk_t clk_parent;
@@ -292,7 +244,7 @@ aw_ahbclk_attach(device_t dev)
 		goto fail;
 	}
 
-	clk = clknode_create(clkdom, &aw_ahbclk_clknode_class, &def);
+	clk = clknode_create(clkdom, &aw_cpusclk_clknode_class, &def);
 	if (clk == NULL) {
 		device_printf(dev, "cannot create clknode\n");
 		error = ENXIO;
@@ -320,21 +272,21 @@ fail:
 	return (error);
 }
 
-static device_method_t aw_ahbclk_methods[] = {
+static device_method_t aw_cpusclk_methods[] = {
 	/* Device interface */
-	DEVMETHOD(device_probe,		aw_ahbclk_probe),
-	DEVMETHOD(device_attach,	aw_ahbclk_attach),
+	DEVMETHOD(device_probe,		aw_cpusclk_probe),
+	DEVMETHOD(device_attach,	aw_cpusclk_attach),
 
 	DEVMETHOD_END
 };
 
-static driver_t aw_ahbclk_driver = {
-	"aw_ahbclk",
-	aw_ahbclk_methods,
+static driver_t aw_cpusclk_driver = {
+	"aw_cpusclk",
+	aw_cpusclk_methods,
 	0
 };
 
-static devclass_t aw_ahbclk_devclass;
+static devclass_t aw_cpusclk_devclass;
 
-EARLY_DRIVER_MODULE(aw_ahbclk, simplebus, aw_ahbclk_driver,
-    aw_ahbclk_devclass, 0, 0, BUS_PASS_BUS + BUS_PASS_ORDER_MIDDLE);
+EARLY_DRIVER_MODULE(aw_cpusclk, simplebus, aw_cpusclk_driver,
+    aw_cpusclk_devclass, 0, 0, BUS_PASS_BUS + BUS_PASS_ORDER_MIDDLE);
