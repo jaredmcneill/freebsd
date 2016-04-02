@@ -40,6 +40,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/kernel.h>
 #include <sys/module.h>
 #include <sys/gpio.h>
+#include <machine/bus.h>
 
 #include <dev/ofw/ofw_bus.h>
 #include <dev/ofw/ofw_bus_subr.h>
@@ -58,6 +59,11 @@ static struct ofw_compat_data compat_data[] = {
 	{ "allwinner,sun6i-a31-usb-phy",	1 },
 	{ "allwinner,sun7i-a20-usb-phy",	1 },
 	{ NULL,					0 }
+};
+
+static struct resource_spec awusbphy_spec[] = {
+	{ SYS_RES_MEMORY,	0,	RF_ACTIVE },
+	{ -1, 0 }
 };
 
 static int
@@ -121,12 +127,13 @@ awusbphy_supply_set(device_t dev, const char *pname)
 }
 
 static int
-awusbphy_init(device_t dev)
+awusbphy_init(device_t dev, struct resource *res)
 {
 	char pname[20];
 	phandle_t node;
 	int error, off;
 	hwreset_t rst;
+	uint32_t val;
 	clk_t clk;
 
 	node = ofw_bus_get_node(dev);
@@ -169,6 +176,29 @@ awusbphy_init(device_t dev)
 			return (error);
 	}
 
+#define PHY_CSR			0x00
+#define	ID_PULLUP_EN		(1 << 17)
+#define	DPDM_PULLUP_EN		(1 << 16)
+#define	FORCE_ID		(0x3 << 14)
+#define	FORCE_ID_SHIFT		14
+#define	FORCE_ID_LOW		2
+#define	FORCE_VBUS_VALID	(0x3 << 12)
+#define	FORCE_VBUS_VALID_SHIFT	12
+#define	FORCE_VBUS_VALID_HIGH	3
+#define	VBUS_CHANGE_DET		(1 << 6)
+#define	ID_CHANGE_DET		(1 << 5)
+#define	DPDM_CHANGE_DET		(1 << 4)
+
+	/* Enable OTG PHY */
+	val = bus_read_4(res, PHY_CSR);
+	val &= ~(VBUS_CHANGE_DET | ID_CHANGE_DET | DPDM_CHANGE_DET);
+	val |= (ID_PULLUP_EN | DPDM_PULLUP_EN);
+	val &= ~FORCE_ID;
+	val |= (FORCE_ID_LOW << FORCE_ID_SHIFT);
+	val &= ~FORCE_VBUS_VALID;
+	val |= (FORCE_VBUS_VALID_HIGH << FORCE_VBUS_VALID_SHIFT);
+	bus_write_4(res, PHY_CSR, val);
+
 	return (0);
 }
 
@@ -188,12 +218,21 @@ awusbphy_probe(device_t dev)
 static int
 awusbphy_attach(device_t dev)
 {
+	struct resource *res;
 	int error;
 
-	error = awusbphy_init(dev);
+	error = bus_alloc_resources(dev, awusbphy_spec, &res);
+	if (error != 0) {
+		device_printf(dev, "failed to allocate bus resources\n");
+		return (error);
+	}
+
+	error = awusbphy_init(dev, res);
 	if (error)
 		device_printf(dev, "failed to initialize USB PHY, error %d\n",
 		    error);
+
+	bus_release_resources(dev, awusbphy_spec, &res);
 
 	return (error);
 }
@@ -214,5 +253,6 @@ static driver_t awusbphy_driver = {
 
 static devclass_t awusbphy_devclass;
 
-DRIVER_MODULE(awusbphy, simplebus, awusbphy_driver, awusbphy_devclass, 0, 0);
+EARLY_DRIVER_MODULE(awusbphy, simplebus, awusbphy_driver, awusbphy_devclass,
+    0, 0, BUS_PASS_TIMER + BUS_PASS_ORDER_MIDDLE);
 MODULE_VERSION(awusbphy, 1);

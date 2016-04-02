@@ -88,7 +88,7 @@
    MUSBOTG_BUS2SC(USB_DMATAG_TO_XROOT((pc)->tag_parent)->bus)
 
 #ifdef USB_DEBUG
-static int musbotgdebug = 0;
+static int musbotgdebug = 2;
 
 static SYSCTL_NODE(_hw_usb, OID_AUTO, musbotg, CTLFLAG_RW, 0, "USB musbotg");
 SYSCTL_INT(_hw_usb_musbotg, OID_AUTO, debug, CTLFLAG_RWTUN,
@@ -3140,19 +3140,24 @@ musbotg_init(struct musbotg_softc *sc)
 
 	MUSB2_WRITE_1(sc, MUSB2_REG_EPINDEX, 0);
 
-	/* read out number of endpoints */
+	if (sc->sc_ep_max == 0) {
+		/* read out number of endpoints */
 
-	nrx =
-	    (MUSB2_READ_1(sc, MUSB2_REG_EPINFO) / 16);
+		nrx =
+		    (MUSB2_READ_1(sc, MUSB2_REG_EPINFO) / 16);
 
-	ntx =
-	    (MUSB2_READ_1(sc, MUSB2_REG_EPINFO) % 16);
+		ntx =
+		    (MUSB2_READ_1(sc, MUSB2_REG_EPINFO) % 16);
+
+		sc->sc_ep_max = (nrx > ntx) ? nrx : ntx;
+	} else {
+		nrx = ntx = sc->sc_ep_max;
+	}
 
 	/* these numbers exclude the control endpoint */
 
 	DPRINTFN(2, "RX/TX endpoints: %u/%u\n", nrx, ntx);
 
-	sc->sc_ep_max = (nrx > ntx) ? nrx : ntx;
 	if (sc->sc_ep_max == 0) {
 		DPRINTFN(2, "ERROR: Looks like the clocks are off!\n");
 	}

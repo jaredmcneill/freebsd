@@ -107,6 +107,7 @@ options 	USB_DEBUG
 #device		uhci
 #device		ohci
 device		ehci
+device		musb
 
 device		umass
 
