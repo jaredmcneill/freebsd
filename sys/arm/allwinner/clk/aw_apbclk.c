@@ -149,7 +149,7 @@ aw_apbclk_set_mux(struct clknode *clk, int index)
 	if (sc->type != AW_A10_APB1)
 		return (ENXIO);
 
-	if (index < 0 || index >= APB1_CLK_SRC_SEL_MAX)
+	if (index < 0 || index > APB1_CLK_SRC_SEL_MAX)
 		return (ERANGE);
 
 	DEVICE_LOCK(sc);

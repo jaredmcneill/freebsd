@@ -146,7 +146,7 @@ aw_debeclk_set_mux(struct clknode *clk, int index)
 
 	sc = clknode_get_softc(clk);
 
-	if (index < 0 || index >= CLK_SRC_SEL_MAX)
+	if (index < 0 || index > CLK_SRC_SEL_MAX)
 		return (ERANGE);
 
 	DEVICE_LOCK(sc);
