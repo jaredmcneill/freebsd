@@ -248,22 +248,13 @@ snps_detach(device_t dev)
 		hwreset_release(reset);
 	}
 	if (apb_pclk != NULL) {
-		error = clk_disable(apb_pclk);
-		if (error != 0) {
-			device_printf(dev, "cannot disable peripheral clock\n");
-			return (error);
-		}
 		error = clk_release(apb_pclk);
 		if (error != 0) {
 			device_printf(dev, "cannot release peripheral clock\n");
+			return (error);
 		}
 	}
 	if (baudclk != NULL) {
-		error = clk_disable(baudclk);
-		if (error != 0) {
-			device_printf(dev, "cannot disable baud clock\n");
-			return (error);
-		}
 		error = clk_release(baudclk);
 		if (error != 0) {
 			device_printf(dev, "cannot release baud clock\n");
