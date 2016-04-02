@@ -451,15 +451,8 @@ ns8250_bus_attach(struct uart_softc *sc)
 #endif
 
 #ifdef FDT
-	/* 
-	 * Check whether uart requires to read USR reg when IIR_BUSY and 
-	 * has broken txfifo. 
-	 */
+	/* Check whether uart has a broken txfifo. */
 	node = ofw_bus_get_node(sc->sc_dev);
-	/* XXX: This is kept for a short time for compatibility with older device trees */
-	if ((OF_getencprop(node, "busy-detect", &cell, sizeof(cell))) > 0
-	    && cell != 0)
-		ns8250->busy_detect = 1;
 	if ((OF_getencprop(node, "broken-txfifo", &cell, sizeof(cell))) > 0)
 		broken_txfifo =  cell ? 1 : 0;
 #endif
