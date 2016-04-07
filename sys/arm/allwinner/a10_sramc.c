@@ -72,7 +72,7 @@ static int
 a10_sramc_probe(device_t dev)
 {
 
-	if (ofw_bus_is_compatible(dev, "allwinner,sun4i-sramc")) {
+	if (ofw_bus_is_compatible(dev, "allwinner,sun4i-a10-sram-controller")) {
 		device_set_desc(dev, "Allwinner sramc module");
 		return (BUS_PROBE_DEFAULT);
 	}
@@ -114,7 +114,8 @@ static driver_t a10_sramc_driver = {
 
 static devclass_t a10_sramc_devclass;
 
-DRIVER_MODULE(a10_sramc, simplebus, a10_sramc_driver, a10_sramc_devclass, 0, 0);
+EARLY_DRIVER_MODULE(a10_sramc, simplebus, a10_sramc_driver, a10_sramc_devclass,
+    0, 0, BUS_PASS_RESOURCE + BUS_PASS_ORDER_MIDDLE);
 
 int
 a10_map_to_emac(void)
