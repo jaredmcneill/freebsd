@@ -70,6 +70,9 @@ static struct ofw_compat_data compat_data[] = {
 	{ NULL, 0 }
 };
 
+/* Clock indices for A10, as there is no clock-indices property in the DT */
+static uint32_t aw_usbclk_indices_a10[] = { 6, 7, 8 };
+
 struct aw_usbclk_softc {
 	bus_addr_t	reg;
 };
@@ -125,9 +128,6 @@ aw_usbclk_create(device_t dev, bus_addr_t paddr, struct clkdom *clkdom,
 {
 	const char *parent_names[1] = { pclkname };
 	struct clk_gate_def def;
-	enum aw_usbclk_type type;
-
-	type = ofw_bus_search_compatible(dev, compat_data)->ocd_data;
 
 	memset(&def, 0, sizeof(def));
 	def.clkdef.id = index;
@@ -135,16 +135,7 @@ aw_usbclk_create(device_t dev, bus_addr_t paddr, struct clkdom *clkdom,
 	def.clkdef.parent_names = parent_names;
 	def.clkdef.parent_cnt = 1;
 	def.offset = paddr;
-	switch (type) {
-	case AW_A10_USBCLK:
-		def.shift = A10_SCLK_GATING_OHCI0 << index;
-		break;
-	case AW_A31_USBCLK:
-		def.shift = index;
-		break;
-	default:
-		return (ENXIO);
-	}
+	def.shift = index;
 	def.mask = 1;
 	def.on_value = 1;
 	def.off_value = 0;
@@ -172,6 +163,7 @@ aw_usbclk_attach(device_t dev)
 	struct clkdom *clkdom;
 	const char **names;
 	int index, nout, error;
+	enum aw_usbclk_type type;
 	uint32_t *indices;
 	clk_t clk_parent;
 	bus_size_t psize;
@@ -180,6 +172,7 @@ aw_usbclk_attach(device_t dev)
 	sc = device_get_softc(dev);
 	node = ofw_bus_get_node(dev);
 	indices = NULL;
+	type = ofw_bus_search_compatible(dev, compat_data)->ocd_data;
 
 	if (ofw_reg_to_paddr(node, 0, &sc->reg, &psize, NULL) != 0) {
 		device_printf(dev, "cannot parse 'reg' property\n");
@@ -194,6 +187,9 @@ aw_usbclk_attach(device_t dev)
 		error = ENOENT;
 		goto fail;
 	}
+
+	if (indices == NULL && type == AW_A10_USBCLK)
+		indices = aw_usbclk_indices_a10;
 
 	error = clk_get_by_ofw_index(dev, 0, &clk_parent);
 	if (error != 0) {

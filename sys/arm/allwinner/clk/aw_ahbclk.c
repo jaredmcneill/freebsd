@@ -192,7 +192,7 @@ aw_ahbclk_set_mux(struct clknode *clk, int index)
 			return (ERANGE);
 		break;
 	case AW_A13_AHB:
-		if (index < 0 || index >= A13_AHB_CLK_SRC_SEL_MAX)
+		if (index < 0 || index > A13_AHB_CLK_SRC_SEL_MAX)
 			return (ERANGE);
 		DEVICE_LOCK(sc);
 		AHBCLK_READ(sc, &val);
