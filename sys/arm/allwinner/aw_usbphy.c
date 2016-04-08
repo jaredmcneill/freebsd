@@ -184,5 +184,5 @@ static driver_t awusbphy_driver = {
 static devclass_t awusbphy_devclass;
 
 EARLY_DRIVER_MODULE(awusbphy, simplebus, awusbphy_driver, awusbphy_devclass,
-    0, 0, BUS_PASS_RESOURCE + BUS_PASS_ORDER_MIDDLE);
+    0, 0, BUS_PASS_TIMER + BUS_PASS_ORDER_MIDDLE);
 MODULE_VERSION(awusbphy, 1);
