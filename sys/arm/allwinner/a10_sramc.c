@@ -115,7 +115,7 @@ static driver_t a10_sramc_driver = {
 static devclass_t a10_sramc_devclass;
 
 EARLY_DRIVER_MODULE(a10_sramc, simplebus, a10_sramc_driver, a10_sramc_devclass,
-    0, 0, BUS_PASS_RESOURCE + BUS_PASS_ORDER_MIDDLE);
+    0, 0, BUS_PASS_RESOURCE + BUS_PASS_ORDER_EARLY);
 
 int
 a10_map_to_emac(void)
