@@ -473,9 +473,9 @@ static device_method_t awusbdrd_methods[] = {
 };
 
 static driver_t awusbdrd_driver = {
-	"musbotg",
-	awusbdrd_methods,
-	sizeof(struct awusbdrd_softc),
+	.name = "musbotg",
+	.methods = awusbdrd_methods,
+	.size = sizeof(struct awusbdrd_softc),
 };
 
 static devclass_t awusbdrd_devclass;
