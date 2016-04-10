@@ -1,0 +1,86 @@
+/*-
+ * Copyright (c) 2016 Jared McNeill <jmcneill@invisible.ca>
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+ * SUCH DAMAGE.
+ *
+ * $FreeBSD$
+ */
+
+#include "sun6i-a31-hummingbird.dts"
+
+/* PRCM clock nodes are missing reg properties */
+/ {
+	soc@01c00000 {
+		prcm@01f01400 {
+			#address-cells = <1>;
+			#size-cells = <1>;
+			ranges;
+		};
+	};
+};
+&ar100 {
+	reg = <0x01f01400 0x4>;
+};
+&apb0 {
+	reg = <0x01f0140c 0x4>;
+};
+&apb0_gates {
+	reg = <0x01f01428 0x4>;
+};
+&ir_clk {
+	reg = <0x01f01454 0x4>;
+};
+&apb0_rst {
+	reg = <0x01f014b3 0x4>;
+};
+
+&gmac {
+	/* Upstream DTS uses incorrect pin for GMAC PHY reset */
+	snps,reset-gpio = <&pio 0 21 GPIO_ACTIVE_HIGH>; /* PA21 */
+};
+
+&reg_usb0_vbus {
+	/* USB0-DRVVBUS */
+	gpio = <&pio 0 17 GPIO_ACTIVE_HIGH>; /* PA17 */
+	status = "okay";
+};
+
+&usbphy {
+	/* OTG PHY power */
+	usb0_vbus-supply = <&reg_usb0_vbus>;
+	usb0_id_det-gpio = <&pio 0 15 GPIO_ACTIVE_HIGH>; /* PA15 */
+	usb0_vbus_det-gpio = <&pio 0 16 GPIO_ACTIVE_HIGH>; /* PA16 */
+};
+
+&usb0_vbus_pin_a {
+	allwinner,pins = "PA17";
+};
+
+&usb_otg {
+	status = "okay";
+};
+
+&mmc1 {
+	/* SDIO wifi; requires mmc-pwrseq */
+	status = "disabled";
+};

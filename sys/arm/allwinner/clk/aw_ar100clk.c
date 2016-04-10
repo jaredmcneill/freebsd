@@ -27,7 +27,7 @@
  */
 
 /*
- * Allwinner APB clock
+ * Allwinner A31 AR100 clock
  */
 
 #include <sys/cdefs.h>
@@ -49,147 +49,100 @@ __FBSDID("$FreeBSD$");
 
 #include "clkdev_if.h"
 
-#define	A10_APB0_CLK_RATIO		(0x3 << 8)
-#define	A10_APB0_CLK_RATIO_SHIFT	8
-#define	A10_APB1_CLK_SRC_SEL	(0x3 << 24)
-#define	A10_APB1_CLK_SRC_SEL_SHIFT	24
-#define	A10_APB1_CLK_SRC_SEL_MAX	0x3
-#define	A10_APB1_CLK_RAT_N		(0x3 << 16)
-#define	A10_APB1_CLK_RAT_N_SHIFT	16
-#define	A10_APB1_CLK_RAT_M		(0x1f << 0)
-#define	A10_APB1_CLK_RAT_M_SHIFT	0
-#define	A31_APB0_CLK_RATIO		(0x3 << 0)
-#define	A31_APB0_CLK_RATIO_SHIFT	0
-
-enum aw_apbclk_type {
-	AW_A10_APB0 = 1,
-	AW_A10_APB1,
-	AW_A31_APB0,
-};
+#define	AR100_CLK_DIV		(0x1f << 8)
+#define	AR100_CLK_DIV_SHIFT	8
+#define	AR100_CLK_SHIFT		(0x3 << 4)
+#define	AR100_CLK_SHIFT_SHIFT	4
+#define	AR100_SRC_SEL		(0x3 << 16)
+#define	AR100_SRC_SEL_MAX	3
+#define	AR100_SRC_SEL_SHIFT	16
 
 static struct ofw_compat_data compat_data[] = {
-	{ "allwinner,sun4i-a10-apb0-clk",	AW_A10_APB0 },
-	{ "allwinner,sun4i-a10-apb1-clk",	AW_A10_APB1 },
-	{ "allwinner,sun6i-a31-apb0-clk",	AW_A31_APB0 },
+	{ "allwinner,sun6i-a31-ar100-clk",	1 },
 	{ NULL, 0 }
 };
 
-struct aw_apbclk_sc {
+struct aw_ar100clk_sc {
 	device_t		clkdev;
 	bus_addr_t		reg;
-	enum aw_apbclk_type	type;
 };
 
-#define	APBCLK_READ(sc, val)	CLKDEV_READ_4((sc)->clkdev, (sc)->reg, (val))
-#define	APBCLK_WRITE(sc, val)	CLKDEV_WRITE_4((sc)->clkdev, (sc)->reg, (val))
+#define	CLK_READ(sc, val)	CLKDEV_READ_4((sc)->clkdev, (sc)->reg, (val))
+#define	CLK_WRITE(sc, val)	CLKDEV_WRITE_4((sc)->clkdev, (sc)->reg, (val))
 #define	DEVICE_LOCK(sc)		CLKDEV_DEVICE_LOCK((sc)->clkdev)
 #define	DEVICE_UNLOCK(sc)	CLKDEV_DEVICE_UNLOCK((sc)->clkdev)
 
 static int
-aw_apbclk_init(struct clknode *clk, device_t dev)
+aw_ar100clk_init(struct clknode *clk, device_t dev)
 {
-	struct aw_apbclk_sc *sc;
+	struct aw_ar100clk_sc *sc;
 	uint32_t val, index;
 
 	sc = clknode_get_softc(clk);
 
-	switch (sc->type) {
-	case AW_A10_APB0:
-	case AW_A31_APB0:
-		index = 0;
-		break;
-	case AW_A10_APB1:
-		DEVICE_LOCK(sc);
-		APBCLK_READ(sc, &val);
-		DEVICE_UNLOCK(sc);
-		index = (val & A10_APB1_CLK_SRC_SEL) >>
-		    A10_APB1_CLK_SRC_SEL_SHIFT;
-		break;
-	default:
-		return (ENXIO);
-	}
+	DEVICE_LOCK(sc);
+	CLK_READ(sc, &val);
+	DEVICE_UNLOCK(sc);
+
+	index = (val & AR100_SRC_SEL) >> AR100_SRC_SEL_SHIFT;
 
 	clknode_init_parent_idx(clk, index);
 	return (0);
 }
 
 static int
-aw_apbclk_recalc_freq(struct clknode *clk, uint64_t *freq)
+aw_ar100clk_recalc_freq(struct clknode *clk, uint64_t *freq)
 {
-	struct aw_apbclk_sc *sc;
-	uint32_t val, div, m, n;
+	struct aw_ar100clk_sc *sc;
+	uint32_t val, shift, div;
 
 	sc = clknode_get_softc(clk);
 
 	DEVICE_LOCK(sc);
-	APBCLK_READ(sc, &val);
+	CLK_READ(sc, &val);
 	DEVICE_UNLOCK(sc);
 
-	switch (sc->type) {
-	case AW_A10_APB0:
-		div = 1 << ((val & A10_APB0_CLK_RATIO) >>
-		    A10_APB0_CLK_RATIO_SHIFT);
-		if (div == 1)
-			div = 2;
-		*freq = *freq / div;
-		break;
-	case AW_A10_APB1:
-		n = 1 << ((val & A10_APB1_CLK_RAT_N) >>
-		    A10_APB1_CLK_RAT_N_SHIFT);
-		m = ((val & A10_APB1_CLK_RAT_N) >>
-		    A10_APB1_CLK_RAT_M_SHIFT) + 1;
-		*freq = *freq / n / m;
-		break;
-	case AW_A31_APB0:
-		div = 1 << ((val & A31_APB0_CLK_RATIO) >>
-		    A31_APB0_CLK_RATIO_SHIFT);
-		if (div == 1)
-			div = 2;
-		*freq = *freq / div;
-		break;
-	default:
-		return (ENXIO);
-	}
+	div = (val & AR100_CLK_DIV) >> AR100_CLK_DIV_SHIFT;
+	shift = (val & AR100_CLK_SHIFT) >> AR100_CLK_SHIFT_SHIFT;
+
+	*freq = (*freq >> shift) / (div + 1);
 
 	return (0);
 }
 
 static int
-aw_apbclk_set_mux(struct clknode *clk, int index)
+aw_ar100clk_set_mux(struct clknode *clk, int index)
 {
-	struct aw_apbclk_sc *sc;
+	struct aw_ar100clk_sc *sc;
 	uint32_t val;
 
 	sc = clknode_get_softc(clk);
 
-	if (sc->type != AW_A10_APB1)
-		return (ENXIO);
-
-	if (index < 0 || index > A10_APB1_CLK_SRC_SEL_MAX)
+	if (index < 0 || index > AR100_SRC_SEL_MAX)
 		return (ERANGE);
 
 	DEVICE_LOCK(sc);
-	APBCLK_READ(sc, &val);
-	val &= ~A10_APB1_CLK_SRC_SEL;
-	val |= (index << A10_APB1_CLK_SRC_SEL_SHIFT);
-	APBCLK_WRITE(sc, val);
+	CLK_READ(sc, &val);
+	val &= ~AR100_SRC_SEL;
+	val |= (index << AR100_SRC_SEL_SHIFT);
+	CLK_WRITE(sc, val);
 	DEVICE_UNLOCK(sc);
 
 	return (0);
 }
 
-static clknode_method_t aw_apbclk_clknode_methods[] = {
+static clknode_method_t aw_ar100clk_clknode_methods[] = {
 	/* Device interface */
-	CLKNODEMETHOD(clknode_init,		aw_apbclk_init),
-	CLKNODEMETHOD(clknode_recalc_freq,	aw_apbclk_recalc_freq),
-	CLKNODEMETHOD(clknode_set_mux,		aw_apbclk_set_mux),
+	CLKNODEMETHOD(clknode_init,		aw_ar100clk_init),
+	CLKNODEMETHOD(clknode_recalc_freq,	aw_ar100clk_recalc_freq),
+	CLKNODEMETHOD(clknode_set_mux,		aw_ar100clk_set_mux),
 	CLKNODEMETHOD_END
 };
-DEFINE_CLASS_1(aw_apbclk_clknode, aw_apbclk_clknode_class,
-    aw_apbclk_clknode_methods, sizeof(struct aw_apbclk_sc), clknode_class);
+DEFINE_CLASS_1(aw_ar100clk_clknode, aw_ar100clk_clknode_class,
+    aw_ar100clk_clknode_methods, sizeof(struct aw_ar100clk_sc), clknode_class);
 
 static int
-aw_apbclk_probe(device_t dev)
+aw_ar100clk_probe(device_t dev)
 {
 	if (!ofw_bus_status_okay(dev))
 		return (ENXIO);
@@ -197,15 +150,15 @@ aw_apbclk_probe(device_t dev)
 	if (ofw_bus_search_compatible(dev, compat_data)->ocd_data == 0)
 		return (ENXIO);
 
-	device_set_desc(dev, "Allwinner APB Clock");
+	device_set_desc(dev, "Allwinner A31 AR100 Clock");
 	return (BUS_PROBE_DEFAULT);
 }
 
 static int
-aw_apbclk_attach(device_t dev)
+aw_ar100clk_attach(device_t dev)
 {
 	struct clknode_init_def def;
-	struct aw_apbclk_sc *sc;
+	struct aw_ar100clk_sc *sc;
 	struct clkdom *clkdom;
 	struct clknode *clk;
 	clk_t clk_parent;
@@ -231,14 +184,9 @@ aw_apbclk_attach(device_t dev)
 	clkdom = clkdom_create(dev);
 
 	memset(&def, 0, sizeof(def));
-	error = clk_parse_ofw_clk_name(dev, node, &def.name);
-	if (error != 0) {
-		device_printf(dev, "cannot parse clock name\n");
-		error = ENXIO;
-		goto fail;
-	}
 	def.id = 1;
-	def.parent_names = malloc(sizeof(char *) * ncells, M_OFWPROP, M_WAITOK);
+	def.parent_names = malloc(sizeof(char *) * ncells, M_OFWPROP,
+	    M_WAITOK);
 	for (i = 0; i < ncells; i++) {
 		error = clk_get_by_ofw_index(dev, i, &clk_parent);
 		if (error != 0) {
@@ -250,15 +198,20 @@ aw_apbclk_attach(device_t dev)
 	}
 	def.parent_cnt = ncells;
 
-	clk = clknode_create(clkdom, &aw_apbclk_clknode_class, &def);
+	error = clk_parse_ofw_clk_name(dev, node, &def.name);
+	if (error != 0) {
+		device_printf(dev, "cannot parse clock name\n");
+		error = ENXIO;
+		goto fail;
+	}
+
+	clk = clknode_create(clkdom, &aw_ar100clk_clknode_class, &def);
 	if (clk == NULL) {
 		device_printf(dev, "cannot create clknode\n");
 		error = ENXIO;
 		goto fail;
 	}
-
 	sc = clknode_get_softc(clk);
-	sc->type = ofw_bus_search_compatible(dev, compat_data)->ocd_data;
 	sc->reg = paddr;
 	sc->clkdev = device_get_parent(dev);
 
@@ -279,21 +232,21 @@ fail:
 	return (error);
 }
 
-static device_method_t aw_apbclk_methods[] = {
+static device_method_t aw_ar100clk_methods[] = {
 	/* Device interface */
-	DEVMETHOD(device_probe,		aw_apbclk_probe),
-	DEVMETHOD(device_attach,	aw_apbclk_attach),
+	DEVMETHOD(device_probe,		aw_ar100clk_probe),
+	DEVMETHOD(device_attach,	aw_ar100clk_attach),
 
 	DEVMETHOD_END
 };
 
-static driver_t aw_apbclk_driver = {
-	"aw_apbclk",
-	aw_apbclk_methods,
+static driver_t aw_ar100clk_driver = {
+	"aw_ar100clk",
+	aw_ar100clk_methods,
 	0
 };
 
-static devclass_t aw_apbclk_devclass;
+static devclass_t aw_ar100clk_devclass;
 
-EARLY_DRIVER_MODULE(aw_apbclk, simplebus, aw_apbclk_driver,
-    aw_apbclk_devclass, 0, 0, BUS_PASS_BUS + BUS_PASS_ORDER_MIDDLE);
+EARLY_DRIVER_MODULE(aw_ar100clk, simplebus, aw_ar100clk_driver,
+    aw_ar100clk_devclass, 0, 0, BUS_PASS_BUS + BUS_PASS_ORDER_MIDDLE);

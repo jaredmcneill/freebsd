@@ -14,10 +14,11 @@ arm/allwinner/aw_rtc.c			standard
 arm/allwinner/aw_wdog.c			standard
 arm/allwinner/a20/a20_cpu_cfg.c 	standard
 arm/allwinner/allwinner_machdep.c	standard
-arm/allwinner/axp209.c			optional	axp209
+arm/allwinner/axp2xx.c			optional	axp2xx
 arm/allwinner/if_emac.c			optional	emac
 arm/allwinner/sunxi_dma_if.m		standard
 dev/iicbus/twsi/a10_twsi.c		optional	twsi
+arm/allwinner/aw_p2wi.c			optional	p2wi
 #arm/allwinner/console.c		standard
 
 arm/allwinner/a10_fb.c			optional	vt
@@ -27,7 +28,9 @@ arm/arm/hdmi_if.m			optional	hdmi
 
 arm/allwinner/aw_reset.c		standard
 arm/allwinner/aw_ccu.c			standard
+arm/allwinner/aw_prcm.c			standard
 arm/allwinner/clk/aw_ahbclk.c		standard
+arm/allwinner/clk/aw_ar100clk.c		standard
 arm/allwinner/clk/aw_apbclk.c		standard
 arm/allwinner/clk/aw_axiclk.c		standard
 arm/allwinner/clk/aw_codecclk.c		standard
@@ -42,3 +45,5 @@ arm/allwinner/clk/aw_mmcclk.c		standard
 arm/allwinner/clk/aw_oscclk.c		standard
 arm/allwinner/clk/aw_pll.c		standard
 arm/allwinner/clk/aw_usbclk.c		standard
+
+arm/allwinner/a31/a31_padconf.c		standard
