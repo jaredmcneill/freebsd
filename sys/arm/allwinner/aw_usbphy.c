@@ -39,10 +39,12 @@ __FBSDID("$FreeBSD$");
 #include <sys/rman.h>
 #include <sys/kernel.h>
 #include <sys/module.h>
+#include <sys/gpio.h>
 #include <machine/bus.h>
 
 #include <dev/ofw/ofw_bus.h>
 #include <dev/ofw/ofw_bus_subr.h>
+#include <dev/gpio/gpiobusvar.h>
 
 #include <dev/extres/clk/clk.h>
 #include <dev/extres/hwreset/hwreset.h>
@@ -54,8 +56,10 @@ __FBSDID("$FreeBSD$");
 #define	FORCE_ID                (0x3 << 14)
 #define	FORCE_ID_SHIFT          14
 #define	FORCE_ID_LOW            2
+#define	FORCE_ID_HIGH		3
 #define	FORCE_VBUS_VALID        (0x3 << 12)
 #define	FORCE_VBUS_VALID_SHIFT  12
+#define	FORCE_VBUS_VALID_LOW	2
 #define	FORCE_VBUS_VALID_HIGH   3
 #define	VBUS_CHANGE_DET         (1 << 6)
 #define	ID_CHANGE_DET           (1 << 5)
@@ -79,12 +83,14 @@ static struct resource_spec awusbphy_spec[] = {
 static int
 awusbphy_init(device_t dev, struct resource *res)
 {
+	gpio_pin_t gpio_iddet, gpio_vbusdet;
 	char pname[20];
 	int error, off;
 	regulator_t reg;
 	hwreset_t rst;
 	clk_t clk;
 	uint32_t val;
+	bool iddet, vbusdet;
 
 	/* Enable clocks */
 	for (off = 0; clk_get_by_ofw_index(dev, off, &clk) == 0; off++) {
@@ -119,15 +125,36 @@ awusbphy_init(device_t dev, struct resource *res)
 		}
 	}
 
-	/* Enable OTG PHY for host mode */
+	gpio_pin_get_by_ofw_property(dev, "usb0_id_det-gpio", &gpio_iddet);
+	gpio_pin_get_by_ofw_property(dev, "usb0_vbus_det-gpio", &gpio_vbusdet);
+
+	iddet = false;
+	vbusdet = true;
+	if (gpio_iddet != NULL)
+		gpio_pin_is_active(gpio_iddet, &iddet);
+	if (gpio_vbusdet != NULL)
+		gpio_pin_is_active(gpio_vbusdet, &vbusdet);
+
+	/* Enable OTG PHY */
 	val = bus_read_4(res, PHY_CSR);
 	val &= ~(VBUS_CHANGE_DET | ID_CHANGE_DET | DPDM_CHANGE_DET);
 	val |= (ID_PULLUP_EN | DPDM_PULLUP_EN);
 	val &= ~FORCE_ID;
-	val |= (FORCE_ID_LOW << FORCE_ID_SHIFT);
+	if (iddet)
+		val |= (FORCE_ID_HIGH << FORCE_ID_SHIFT);
+	else
+		val |= (FORCE_ID_LOW << FORCE_ID_SHIFT);
 	val &= ~FORCE_VBUS_VALID;
-	val |= (FORCE_VBUS_VALID_HIGH << FORCE_VBUS_VALID_SHIFT);
+	if (vbusdet)
+		val |= (FORCE_VBUS_VALID_HIGH << FORCE_VBUS_VALID_SHIFT);
+	else
+		val |= (FORCE_VBUS_VALID_LOW << FORCE_VBUS_VALID_SHIFT);
 	bus_write_4(res, PHY_CSR, val);
+
+	if (gpio_iddet != NULL)
+		gpio_pin_release(gpio_iddet);
+	if (gpio_vbusdet != NULL)
+		gpio_pin_release(gpio_vbusdet);
 
 	return (0);
 }
