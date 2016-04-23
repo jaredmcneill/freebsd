@@ -231,6 +231,9 @@ p2wi_transfer(device_t dev, struct iic_msg *msgs, uint32_t nmsgs)
 		error = EIO;
 	}
 
+	/* Disable interrupts */
+	P2WI_WRITE(sc, P2WI_INTE, 0);
+
 	if (error == 0 && (msgs[1].flags & IIC_M_RD) == IIC_M_RD) {
 		/* Read data */
 		data[0] = P2WI_READ(sc, P2WI_DATA0);
@@ -286,28 +289,20 @@ p2wi_attach(device_t dev)
 	sc = device_get_softc(dev);
 	mtx_init(&sc->mtx, device_get_nameunit(dev), "p2wi", MTX_DEF);
 
-#ifdef notyet
-	error = clk_get_by_ofw_index(dev, 0, &sc->clk);
-	if (error != 0) {
-		device_printf(dev, "cannot get clock\n");
-		goto fail;
+	if (clk_get_by_ofw_index(dev, 0, &sc->clk) == 0) {
+		error = clk_enable(sc->clk);
+		if (error != 0) {
+			device_printf(dev, "cannot enable clock\n");
+			goto fail;
+		}
 	}
-	error = hwreset_get_by_ofw_idx(dev, 0, &sc->rst);
-	if (error != 0) {
-		device_printf(dev, "cannot get hwreset\n");
-		goto fail;
+	if (hwreset_get_by_ofw_idx(dev, 0, &sc->rst) == 0) {
+		error = hwreset_deassert(sc->rst);
+		if (error != 0) {
+			device_printf(dev, "cannot de-assert reset\n");
+			goto fail;
+		}
 	}
-	error = clk_enable(sc->clk);
-	if (error != 0) {
-		device_printf(dev, "cannot enable clock\n");
-		goto fail;
-	}
-	error = hwreset_deassert(sc->rst);
-	if (error != 0) {
-		device_printf(dev, "cannot de-assert reset\n");
-		goto fail;
-	}
-#endif
 
 	if (bus_alloc_resources(dev, p2wi_spec, sc->res) != 0) {
 		device_printf(dev, "cannot allocate resources for device\n");
