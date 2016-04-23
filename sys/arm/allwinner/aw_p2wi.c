@@ -215,7 +215,7 @@ p2wi_transfer(device_t dev, struct iic_msg *msgs, uint32_t nmsgs)
 		error = ETIMEDOUT;
 		for (retry = P2WI_I2C_TIMEOUT; retry > 0; retry--) {
 			sc->status |= P2WI_READ(sc, P2WI_INTS);
-			if (sc->status & INT_TRANS_OVER) {
+			if ((sc->status & INT_TRANS_OVER) != 0) {
 				error = 0;
 				break;
 			}
