@@ -460,6 +460,8 @@
         ..
         posixshm
         ..
+        sys
+        ..
         vfs
         ..
         vm
@@ -608,6 +610,8 @@
         ..
         printf
         ..
+        sdiff
+        ..
         sed
             regress.multitest.out
             ..
@@ -629,6 +633,8 @@
         uuencode
         ..
         xargs
+        ..
+        xinstall
         ..
         xo
         ..
