@@ -95,6 +95,15 @@ a31s_attach(platform_t plat)
 }
 
 static int
+a80_attach(platform_t plat)
+{
+	soc_type = ALLWINNERSOC_A80;
+	soc_family = ALLWINNERSOC_SUN9I;
+
+	return (0);
+}
+
+static int
 a83t_attach(platform_t plat)
 {
 	soc_type = ALLWINNERSOC_A83T;
@@ -203,6 +212,31 @@ static platform_method_t a31s_methods[] = {
 	PLATFORMMETHOD_END,
 };
 FDT_PLATFORM_DEF(a31s, "a31s", 0, "allwinner,sun6i-a31s", 200);
+#endif
+
+#if defined(SOC_ALLWINNER_A80)
+static int
+a80_devmap_init(platform_t plat)
+{
+	devmap_add_entry(0x01C00000, 0x00400000); /* 4MB */
+	devmap_add_entry(0x06000000, 0x00100000); /* 1MB */
+	devmap_add_entry(0x07000000, 0x00100000); /* 1MB */
+
+	return (0);
+}
+
+static platform_method_t a80_methods[] = {
+	PLATFORMMETHOD(platform_attach,         a80_attach),
+	PLATFORMMETHOD(platform_lastaddr,       allwinner_lastaddr),
+	PLATFORMMETHOD(platform_devmap_init,    a80_devmap_init),
+
+#ifdef SMP
+	PLATFORMMETHOD(platform_mp_start_ap,	a80_mp_start_ap),
+	PLATFORMMETHOD(platform_mp_setmaxid,	aw_mp_setmaxid),
+#endif
+	PLATFORMMETHOD_END,
+};
+FDT_PLATFORM_DEF(a80, "a80", 0, "allwinner,sun9i-a80", 200);
 #endif
 
 #if defined(SOC_ALLWINNER_A83T)

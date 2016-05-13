@@ -54,11 +54,15 @@ __FBSDID("$FreeBSD$");
 #define	CCU_BASE	0x01c20000
 #define	CCU_SIZE	0x400
 
+#define	CCU_BASE_A80	0x06000000
+#define	CCU_SIZE_A80	0x800
+
 #define	PRCM_BASE	0x01f01400
 #define	PRCM_SIZE	0x200
 
 #define	SYSCTRL_BASE	0x01c00000
 #define	SYSCTRL_SIZE	0x34
+
 
 struct aw_ccu_softc {
 	struct simplebus_softc	sc;
@@ -73,6 +77,7 @@ struct aw_ccu_softc {
 #define	CLOCK_CCU	(1 << 0)
 #define	CLOCK_PRCM	(1 << 1)
 #define	CLOCK_SYSCTRL	(1 << 2)
+#define	CLOCK_CCU_A80	(1 << 3)
 
 static struct ofw_compat_data compat_data[] = {
 	{ "allwinner,sun4i-a10",	CLOCK_CCU },
@@ -80,6 +85,7 @@ static struct ofw_compat_data compat_data[] = {
 	{ "allwinner,sun6i-a31",	CLOCK_CCU },
 	{ "allwinner,sun6i-a31s",	CLOCK_CCU },
 	{ "allwinner,sun8i-a83t",	CLOCK_CCU|CLOCK_PRCM|CLOCK_SYSCTRL },
+	{ "allwinner,sun9i-a80",	CLOCK_CCU_A80 },
 	{ NULL, 0 }
 };
 
@@ -90,6 +96,12 @@ aw_ccu_check_addr(struct aw_ccu_softc *sc, bus_addr_t addr,
 	if (addr >= CCU_BASE && addr < (CCU_BASE + CCU_SIZE) &&
 	    (sc->flags & CLOCK_CCU) != 0) {
 		*poff = addr - CCU_BASE;
+		*pbsh = sc->ccu_bsh;
+		return (0);
+	}
+	if (addr >= CCU_BASE_A80 && addr < (CCU_BASE_A80 + CCU_SIZE_A80) &&
+	    (sc->flags & CLOCK_CCU_A80) != 0) {
+		*poff = addr - CCU_BASE_A80;
 		*pbsh = sc->ccu_bsh;
 		return (0);
 	}
@@ -238,6 +250,13 @@ aw_ccu_attach(device_t dev)
 	sc->bst = bus_get_bus_tag(dev);
 	if (sc->flags & CLOCK_CCU) {
 		error = bus_space_map(sc->bst, CCU_BASE, CCU_SIZE, 0,
+		    &sc->ccu_bsh);
+		if (error != 0) {
+			device_printf(dev, "couldn't map CCU: %d\n", error);
+			return (error);
+		}
+	} else if (sc->flags & CLOCK_CCU_A80) {
+		error = bus_space_map(sc->bst, CCU_BASE_A80, CCU_SIZE_A80, 0,
 		    &sc->ccu_bsh);
 		if (error != 0) {
 			device_printf(dev, "couldn't map CCU: %d\n", error);
