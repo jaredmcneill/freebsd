@@ -43,6 +43,7 @@ __FBSDID("$FreeBSD$");
 
 #include <dev/ofw/ofw_bus.h>
 #include <dev/ofw/ofw_bus_subr.h>
+#include <dev/gpio/gpiobusvar.h>
 
 #include <dev/extres/clk/clk.h>
 #include <dev/extres/hwreset/hwreset.h>
@@ -64,8 +65,52 @@ static struct ofw_compat_data compat_data[] = {
 };
 
 struct awusbphy_softc {
-	regulator_t	reg[USBPHY_NPHYS];
+	regulator_t		reg[USBPHY_NPHYS];
+	struct gpiobus_pin	id_det_pin;
+	struct gpiobus_pin	vbus_det_pin;
 };
+
+static int
+awusbphy_get_gpiopin(device_t dev, const char *prop, struct gpiobus_pin *pin)
+{
+	struct awusbphy_softc *sc;
+	phandle_t node, xref;
+	int ncells, error;
+	device_t gpiodev;
+	pcell_t *cells;
+
+	sc = device_get_softc(dev);
+	node = ofw_bus_get_node(dev);
+
+	if (!OF_hasprop(node, prop))
+		return (0);
+
+	error = ofw_bus_parse_xref_list_alloc(node, prop, "#gpio-cells", 0,
+	    &xref, &ncells, &cells);
+	if (error != 0)
+		goto done;
+
+	gpiodev = OF_device_from_xref(xref);
+	if (gpiodev == NULL) {
+		error = ENODEV;
+		goto done;
+	}
+
+	error = gpio_map_gpios(gpiodev, node, OF_node_from_xref(xref),
+	    ncells, cells, &pin->pin, &pin->flags);
+	if (error != 0)
+		goto done;
+
+	error = GPIO_PIN_SETFLAGS(gpiodev, pin->pin, GPIO_PIN_INPUT);
+	if (error != 0)
+		goto done;
+
+	pin->dev = gpiodev;
+
+done:
+	OF_prop_free(cells);
+	return (error);
+}
 
 static int
 awusbphy_init(device_t dev)
@@ -106,6 +151,36 @@ awusbphy_init(device_t dev)
 			sc->reg[off] = reg;
 	}
 
+	/* Get GPIOs */
+	error = awusbphy_get_gpiopin(dev, "usb0_id_det-gpios",
+	    &sc->id_det_pin);
+	if (error != 0) {
+		device_printf(dev, "couldn't get id detect gpio\n");
+		return (error);
+	}
+	error = awusbphy_get_gpiopin(dev, "usb0_vbus_det-gpios",
+	    &sc->vbus_det_pin);
+	if (error != 0) {
+		device_printf(dev, "couldn't get vbus detect gpio\n");
+		return (error);
+	}
+
+	return (0);
+}
+
+static int
+awusbphy_vbus_detect(device_t dev, int *val)
+{
+	struct awusbphy_softc *sc;
+	struct gpiobus_pin *pin;
+
+	sc = device_get_softc(dev);
+	pin = &sc->vbus_det_pin;
+
+	if (pin->dev != NULL)
+		return GPIO_PIN_GET(pin->dev, pin->pin, val);
+
+	*val = 1;
 	return (0);
 }
 
@@ -114,7 +189,7 @@ awusbphy_phy_enable(device_t dev, int phy, bool enable)
 {
 	struct awusbphy_softc *sc;
 	regulator_t reg;
-	int error;
+	int error, vbus_det;
 
 	if (phy < 0 || phy >= USBPHY_NPHYS)
 		return (ERANGE);
@@ -126,9 +201,17 @@ awusbphy_phy_enable(device_t dev, int phy, bool enable)
 	if (reg == NULL)
 		return (0);
 
-	if (enable)
-		error = regulator_enable(reg);
-	else
+	if (enable) {
+		/* If an external vbus is detected, do not enable phy 0 */
+		if (phy == 0) {
+			error = awusbphy_vbus_detect(dev, &vbus_det);
+			if (error == 0 && vbus_det == 1)
+				return (0);
+		} else
+			error = 0;
+		if (error == 0)
+			error = regulator_enable(reg);
+	} else
 		error = regulator_disable(reg);
 	if (error != 0) {
 		device_printf(dev, "couldn't %s regulator for phy %d\n",
