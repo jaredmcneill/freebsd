@@ -66,56 +66,17 @@ static struct ofw_compat_data compat_data[] = {
 
 struct awusbphy_softc {
 	regulator_t		reg[USBPHY_NPHYS];
-	struct gpiobus_pin	id_det_pin;
-	struct gpiobus_pin	vbus_det_pin;
+	gpio_pin_t		id_det_pin;
+	int			id_det_valid;
+	gpio_pin_t		vbus_det_pin;
+	int			vbus_det_valid;
 };
-
-static int
-awusbphy_get_gpiopin(device_t dev, const char *prop, struct gpiobus_pin *pin)
-{
-	struct awusbphy_softc *sc;
-	phandle_t node, xref;
-	int ncells, error;
-	device_t gpiodev;
-	pcell_t *cells;
-
-	sc = device_get_softc(dev);
-	node = ofw_bus_get_node(dev);
-
-	if (!OF_hasprop(node, prop))
-		return (0);
-
-	error = ofw_bus_parse_xref_list_alloc(node, prop, "#gpio-cells", 0,
-	    &xref, &ncells, &cells);
-	if (error != 0)
-		goto done;
-
-	gpiodev = OF_device_from_xref(xref);
-	if (gpiodev == NULL) {
-		error = ENODEV;
-		goto done;
-	}
-
-	error = gpio_map_gpios(gpiodev, node, OF_node_from_xref(xref),
-	    ncells, cells, &pin->pin, &pin->flags);
-	if (error != 0)
-		goto done;
-
-	error = GPIO_PIN_SETFLAGS(gpiodev, pin->pin, GPIO_PIN_INPUT);
-	if (error != 0)
-		goto done;
-
-	pin->dev = gpiodev;
-
-done:
-	OF_prop_free(cells);
-	return (error);
-}
 
 static int
 awusbphy_init(device_t dev)
 {
 	struct awusbphy_softc *sc;
+	phandle_t node;
 	char pname[20];
 	int error, off;
 	regulator_t reg;
@@ -123,6 +84,7 @@ awusbphy_init(device_t dev)
 	clk_t clk;
 
 	sc = device_get_softc(dev);
+	node = ofw_bus_get_node(dev);
 
 	/* Enable clocks */
 	for (off = 0; clk_get_by_ofw_index(dev, off, &clk) == 0; off++) {
@@ -152,18 +114,14 @@ awusbphy_init(device_t dev)
 	}
 
 	/* Get GPIOs */
-	error = awusbphy_get_gpiopin(dev, "usb0_id_det-gpios",
+	error = gpio_pin_get_by_ofw_property(dev, node, "usb0_id_det-gpios",
 	    &sc->id_det_pin);
-	if (error != 0) {
-		device_printf(dev, "couldn't get id detect gpio\n");
-		return (error);
-	}
-	error = awusbphy_get_gpiopin(dev, "usb0_vbus_det-gpios",
+	if (error == 0)
+		sc->id_det_valid = 1;
+	error = gpio_pin_get_by_ofw_property(dev, node, "usb0_vbus_det-gpios",
 	    &sc->vbus_det_pin);
-	if (error != 0) {
-		device_printf(dev, "couldn't get vbus detect gpio\n");
-		return (error);
-	}
+	if (error == 0)
+		sc->vbus_det_valid = 1;
 
 	return (0);
 }
@@ -172,13 +130,18 @@ static int
 awusbphy_vbus_detect(device_t dev, int *val)
 {
 	struct awusbphy_softc *sc;
-	struct gpiobus_pin *pin;
+	bool active;
+	int error;
 
 	sc = device_get_softc(dev);
-	pin = &sc->vbus_det_pin;
 
-	if (pin->dev != NULL)
-		return GPIO_PIN_GET(pin->dev, pin->pin, val);
+	if (sc->vbus_det_valid) {
+		error = gpio_pin_is_active(sc->vbus_det_pin, &active);
+		if (error != 0)
+			return (error);
+		*val = active;
+		return (0);
+	}
 
 	*val = 1;
 	return (0);
