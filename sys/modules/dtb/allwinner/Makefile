@@ -5,6 +5,7 @@ DTS=	\
 	bananapim2.dts \
 	cubieboard.dts \
 	cubieboard2.dts \
+	cubietruck.dts \
 	olimex-a20-som-evb.dts \
 	olinuxino-lime.dts \
 	pcduino3b.dts \
