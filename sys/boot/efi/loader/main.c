@@ -402,8 +402,15 @@ main(int argc, CHAR16 *argv[])
 	 */
 	BS->SetWatchdogTimer(0, 0, 0, NULL);
 
-	if (find_currdev(img, &dev, &unit, &pool_guid) != 0)
-		return (EFI_NOT_FOUND);
+	if (find_currdev(img, &dev, &unit, &pool_guid) != 0) {
+		/* try to fallback on the first device */
+		if (devsw[0] != NULL)
+			dev = devsw[0];
+		else {
+			printf("Can't find any EFI device, aborting\n");
+			return (EFI_NOT_FOUND);
+		}
+	}
 
 	switch (dev->dv_type) {
 #ifdef EFI_ZFS_BOOT

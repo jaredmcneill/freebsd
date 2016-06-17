@@ -1,4 +1,19 @@
 # $FreeBSD$
+arm/allwinner/a10_gpio.c	optional	gpio
+arm/allwinner/a10_mmc.c		optional	mmc
+arm/allwinner/a64/a64_padconf.c	optional	soc_allwinner_a64
+arm/allwinner/a64/a64_r_padconf.c optional	soc_allwinner_a64
+arm/allwinner/aw_ccu.c		optional	soc_allwinner_a64
+arm/allwinner/aw_reset.c	optional	soc_allwinner_a64
+arm/allwinner/clk/aw_ahbclk.c	optional	soc_allwinner_a64
+arm/allwinner/clk/aw_apbclk.c	optional	soc_allwinner_a64
+arm/allwinner/clk/aw_axiclk.c	optional	soc_allwinner_a64
+arm/allwinner/clk/aw_cpuclk.c	optional	soc_allwinner_a64
+arm/allwinner/clk/aw_gate.c	optional	soc_allwinner_a64
+arm/allwinner/clk/aw_modclk.c	optional	soc_allwinner_a64
+arm/allwinner/clk/aw_pll.c	optional	soc_allwinner_a64 \
+	compile-with "${NORMAL_C} -I$S/gnu/dts/include"
+arm/allwinner/if_awg.c		optional	awg
 arm/arm/generic_timer.c		standard
 arm/arm/gic.c			optional	intrng
 arm/arm/pmu.c			standard
@@ -74,6 +89,7 @@ dev/psci/psci.c			optional	psci
 dev/psci/psci_arm64.S		optional	psci
 dev/uart/uart_cpu_fdt.c		optional	uart fdt
 dev/uart/uart_dev_pl011.c	optional	uart pl011
+dev/uart/uart_dev_snps.c	optional	uart uart_snps
 dev/usb/controller/dwc_otg_hisi.c optional	dwcotg soc_hisi_hi6220
 dev/usb/controller/generic_ohci.c optional	ohci fdt
 dev/usb/controller/generic_usb_if.m optional	ohci fdt

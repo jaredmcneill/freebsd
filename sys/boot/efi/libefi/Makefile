@@ -35,6 +35,8 @@ CFLAGS+= -I${.CURDIR}/../../common
 
 # Handle FreeBSD specific %b and %D printf format specifiers
 CFLAGS+= ${FORMAT_EXTENSIONS}
+.if ${MACHINE_CPUARCH} != "arm" && ${MACHINE_CPUARCH} != "aarch64"
 CFLAGS+= -DTERM_EMU
+.endif
 
 .include <bsd.lib.mk>

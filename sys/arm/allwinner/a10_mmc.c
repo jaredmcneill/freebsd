@@ -154,7 +154,9 @@ a10_mmc_attach(device_t dev)
 	struct sysctl_oid_list *tree;
 	uint32_t bus_width;
 	phandle_t node;
+#if 0
 	int error;
+#endif
 
 	node = ofw_bus_get_node(dev);
 	sc = device_get_softc(dev);
@@ -186,6 +188,7 @@ a10_mmc_attach(device_t dev)
 	 * Later chips use a different FIFO offset. Unfortunately the FDT
 	 * uses the same compatible string for old and new implementations.
 	 */
+#if 0
 	switch (allwinner_soc_family()) {
 	case ALLWINNERSOC_SUN4I:
 	case ALLWINNERSOC_SUN5I:
@@ -196,7 +199,11 @@ a10_mmc_attach(device_t dev)
 		sc->a10_fifo_reg = A31_MMC_FIFO;
 		break;
 	}
+#else
+	sc->a10_fifo_reg = A31_MMC_FIFO;
+#endif
 
+#if 0
 	/* De-assert reset */
 	if (hwreset_get_by_ofw_name(dev, "ahb", &sc->a10_rst_ahb) == 0) {
 		error = hwreset_deassert(sc->a10_rst_ahb);
@@ -233,6 +240,7 @@ a10_mmc_attach(device_t dev)
 		device_printf(dev, "cannot enable mmc clock\n");
 		goto fail;
 	}
+#endif
 
 	sc->a10_timeout = 10;
 	ctx = device_get_sysctl_ctx(dev);
@@ -851,6 +859,7 @@ a10_mmc_update_ios(device_t bus, device_t child)
 		if (error != 0)
 			return (error);
 
+#if 0
 		/* Set the MMC clock. */
 		error = clk_set_freq(sc->a10_clk_mmc, ios->clock,
 		    CLK_SET_ROUND_DOWN);
@@ -860,6 +869,7 @@ a10_mmc_update_ios(device_t bus, device_t child)
 			    ios->clock, error);
 			return (error);
 		}
+#endif
 
 		/* Enable clock. */
 		clkcr |= A10_MMC_CARD_CLK_ON;

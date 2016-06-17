@@ -528,8 +528,10 @@ a31_pll6_init(device_t dev, bus_addr_t reg, struct clknode_init_def *def)
 
 	CLKDEV_DEVICE_UNLOCK(dev);
 
+#if 0
 	if (retry == 0)
 		return (ETIMEDOUT);
+#endif
 
 	return (0);
 }

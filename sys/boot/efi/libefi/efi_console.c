@@ -438,8 +438,9 @@ efi_cons_getchar()
 
 	/* Try to read a key stroke. We wait for one if none is pending. */
 	status = conin->ReadKeyStroke(conin, &key);
-	if (status == EFI_NOT_READY) {
-		BS->WaitForEvent(1, &conin->WaitForKey, &junk);
+	while (status == EFI_NOT_READY) {
+		if (conin->WaitForKey != NULL)
+			BS->WaitForEvent(1, &conin->WaitForKey, &junk);
 		status = conin->ReadKeyStroke(conin, &key);
 	}
 	switch (key.ScanCode) {

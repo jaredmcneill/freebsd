@@ -82,10 +82,13 @@ static struct ofw_compat_data compat_data[] = {
 	  (uintptr_t)"Allwinner APB0 Clock Gates" },
 
 	{ "allwinner,sun8i-h3-bus-gates-clk",
-	  (uintptr_t)"Allwinner Bus Clock Gates"},
+	  (uintptr_t)"Allwinner Bus Clock Gates" },
 
 	{ "allwinner,sun9i-a80-apbs-gates-clk",
 	  (uintptr_t)"Allwinner APBS Clock Gates" },
+
+	{ "allwinner,sunxi-multi-bus-gates-clk",
+	  (uintptr_t)"Allwinner Bus Clock Gates" },
 
 	{ NULL, 0 }
 };
@@ -112,42 +115,15 @@ aw_gate_create(device_t dev, bus_addr_t paddr, struct clkdom *clkdom,
 }
 
 static int
-aw_gate_probe(device_t dev)
+aw_gate_add(device_t dev, struct clkdom *clkdom, phandle_t node,
+    bus_addr_t paddr)
 {
-	const char *d;
-
-	if (!ofw_bus_status_okay(dev))
-		return (ENXIO);
-
-	d = (const char *)ofw_bus_search_compatible(dev, compat_data)->ocd_data;
-	if (d == NULL)
-		return (ENXIO);
-
-	device_set_desc(dev, d);
-	return (BUS_PROBE_DEFAULT);
-}
-
-static int
-aw_gate_attach(device_t dev)
-{
-	struct clkdom *clkdom;
 	const char **names;
-	int index, nout, error;
 	uint32_t *indices;
 	clk_t clk_parent;
-	bus_addr_t paddr;
-	bus_size_t psize;
-	phandle_t node;
+	int index, nout, error;
 
-	node = ofw_bus_get_node(dev);
 	indices = NULL;
-
-	if (ofw_reg_to_paddr(node, 0, &paddr, &psize, NULL) != 0) {
-		device_printf(dev, "cannot parse 'reg' property\n");
-		return (ENXIO);
-	}
-
-	clkdom = clkdom_create(dev);
 
 	nout = clk_parse_ofw_out_names(dev, node, &names, &indices);
 	if (nout == 0) {
@@ -174,19 +150,60 @@ aw_gate_attach(device_t dev)
 			goto fail;
 	}
 
+	return (0);
+
+fail:
+	return (error);
+}
+
+static int
+aw_gate_probe(device_t dev)
+{
+	const char *d;
+
+	if (!ofw_bus_status_okay(dev))
+		return (ENXIO);
+
+	d = (const char *)ofw_bus_search_compatible(dev, compat_data)->ocd_data;
+	if (d == NULL)
+		return (ENXIO);
+
+	device_set_desc(dev, d);
+	return (BUS_PROBE_DEFAULT);
+}
+
+static int
+aw_gate_attach(device_t dev)
+{
+	struct clkdom *clkdom;
+	bus_addr_t paddr;
+	bus_size_t psize;
+	phandle_t node, child;
+
+	node = ofw_bus_get_node(dev);
+
+	if (ofw_reg_to_paddr(node, 0, &paddr, &psize, NULL) != 0) {
+		device_printf(dev, "cannot parse 'reg' property\n");
+		return (ENXIO);
+	}
+
+	clkdom = clkdom_create(dev);
+
+	if (ofw_bus_is_compatible(dev, "allwinner,sunxi-multi-bus-gates-clk")) {
+		for (child = OF_child(node); child > 0; child = OF_peer(child))
+			aw_gate_add(dev, clkdom, child, paddr);
+	} else
+		aw_gate_add(dev, clkdom, node, paddr);
+
 	if (clkdom_finit(clkdom) != 0) {
 		device_printf(dev, "cannot finalize clkdom initialization\n");
-		error = ENXIO;
-		goto fail;
+		return (ENXIO);
 	}
 
 	if (bootverbose)
 		clkdom_dump(clkdom);
 
 	return (0);
-
-fail:
-	return (error);
 }
 
 static device_method_t aw_gate_methods[] = {

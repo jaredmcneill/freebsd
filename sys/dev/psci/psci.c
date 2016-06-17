@@ -125,6 +125,7 @@ psci_probe(device_t dev)
 {
 	const struct ofw_compat_data *ocd;
 
+	return (ENXIO);
 	if (!ofw_bus_status_okay(dev))
 		return (ENXIO);
 

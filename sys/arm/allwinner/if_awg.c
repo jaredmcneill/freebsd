@@ -116,6 +116,7 @@ TUNABLE_INT("hw.awg.tx_interval", &awg_tx_interval);
 
 static struct ofw_compat_data compat_data[] = {
 	{ "allwinner,sun8i-a83t-emac",		1 },
+	{ "allwinner,sun8i-h3-emac",		1 },
 	{ NULL,					0 }
 };
 
@@ -1028,8 +1029,8 @@ awg_setup_extres(device_t dev)
 	}
 
 	if (bootverbose)
-		device_printf(dev, "AHB frequency %llu Hz, MDC div: 0x%x\n",
-		    freq, sc->mdc_div_ratio_m);
+		device_printf(dev, "AHB frequency %ju Hz, MDC div: 0x%x\n",
+		    (uintmax_t)freq, sc->mdc_div_ratio_m);
 
 	return (0);
 
