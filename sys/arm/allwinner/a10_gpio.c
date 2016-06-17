@@ -57,6 +57,10 @@ __FBSDID("$FreeBSD$");
 #include <dev/extres/clk/clk.h>
 #include <dev/extres/hwreset/hwreset.h>
 
+#if defined(__aarch64__)
+#include "opt_soc.h"
+#endif
+
 #include "gpio_if.h"
 
 #define	A10_GPIO_DEFAULT_CAPS	(GPIO_PIN_INPUT | GPIO_PIN_OUTPUT |	\

@@ -36,6 +36,8 @@ __FBSDID("$FreeBSD$");
 
 #include <arm/allwinner/allwinner_pinctrl.h>
 
+#include "opt_soc.h"
+
 #ifdef SOC_ALLWINNER_A64
 
 static const struct allwinner_pins a64_pins[] = {
