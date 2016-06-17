@@ -98,6 +98,16 @@ __FBSDID("$FreeBSD$");
 #define	PAUSE_TIME_DEFAULT	0x400
 #define	TX_INTERVAL_DEFAULT	64
 
+/* syscon EMAC clock register */
+#define	EMAC_CLK_RMII_EN	(1 << 13)
+#define	EMAC_CLK_PIT		(0x1 << 2)
+#define	 EMAC_CLK_PIT_MII	(0 << 2)
+#define	 EMAC_CLK_PIT_RGMII	(1 << 2)
+#define	EMAC_CLK_SRC		(0x3 << 0)
+#define	 EMAC_CLK_SRC_MII	(0 << 0)
+#define	 EMAC_CLK_SRC_EXT_RGMII	(1 << 0)
+#define	 EMAC_CLK_SRC_RGMII	(2 << 0)
+
 /* Burst length of RX and TX DMA transfers */
 static int awg_burst_len = BURST_LEN_DEFAULT;
 TUNABLE_INT("hw.awg.burst_len", &awg_burst_len);
@@ -146,7 +156,7 @@ struct awg_rxring {
 };
 
 struct awg_softc {
-	struct resource		*res[2];
+	struct resource		*res[3];
 	struct mtx		mtx;
 	if_t			ifp;
 	device_t		miibus;
@@ -164,6 +174,7 @@ struct awg_softc {
 static struct resource_spec awg_spec[] = {
 	{ SYS_RES_MEMORY,	0,	RF_ACTIVE },
 	{ SYS_RES_IRQ,		0,	RF_ACTIVE },
+	{ SYS_RES_MEMORY,	1,	RF_ACTIVE | RF_OPTIONAL },
 	{ -1, 0 }
 };
 
@@ -910,49 +921,40 @@ awg_ioctl(if_t ifp, u_long cmd, caddr_t data)
 }
 
 static int
-awg_setup_extres(device_t dev)
+awg_setup_phy(device_t dev)
 {
 	struct awg_softc *sc;
-	hwreset_t rst_ahb;
-	clk_t clk_ahb, clk_tx, clk_tx_parent;
-	regulator_t reg;
+	clk_t clk_tx, clk_tx_parent;
 	const char *tx_parent_name;
 	char *phy_type;
 	phandle_t node;
-	uint64_t freq;
-	int error, div;
+	uint32_t reg;
+	int error;
 
 	sc = device_get_softc(dev);
 	node = ofw_bus_get_node(dev);
-	rst_ahb = NULL;
-	clk_ahb = NULL;
-	clk_tx = NULL;
-	clk_tx_parent = NULL;
-	reg = NULL;
-	phy_type = NULL;
 
-	/* Get AHB clock and reset resources */
-	error = hwreset_get_by_ofw_name(dev, "ahb", &rst_ahb);
-	if (error != 0) {
-		device_printf(dev, "cannot get ahb reset\n");
-		goto fail;
-	}
-	error = clk_get_by_ofw_name(dev, "ahb", &clk_ahb);
-	if (error != 0) {
-		device_printf(dev, "cannot get ahb clock\n");
-		goto fail;
-	}
-	
-	/* Configure PHY for MII or RGMII mode */
-	if (OF_getprop_alloc(node, "phy-mode", 1, (void **)&phy_type)) {
-		if (bootverbose)
-			device_printf(dev, "PHY type: %s\n", phy_type);
+	if (OF_getprop_alloc(node, "phy-mode", 1, (void **)&phy_type) == 0)
+		return (0);
 
+	if (bootverbose)
+		device_printf(dev, "PHY type: %s\n", phy_type);
+
+	if (sc->res[2] != NULL) {
+		reg = bus_read_4(sc->res[2], 0);
+		reg &= ~(EMAC_CLK_PIT | EMAC_CLK_SRC | EMAC_CLK_RMII_EN);
+		if (strcmp(phy_type, "rgmii") == 0)
+			reg |= EMAC_CLK_PIT_RGMII | EMAC_CLK_SRC_RGMII;
+		else if (strcmp(phy_type, "rmii") == 0)
+			reg |= EMAC_CLK_RMII_EN;
+		else
+			reg |= EMAC_CLK_PIT_MII | EMAC_CLK_SRC_MII;
+		bus_write_4(sc->res[2], 0, reg);
+	} else {
 		if (strcmp(phy_type, "rgmii") == 0)
 			tx_parent_name = "emac_int_tx";
 		else
 			tx_parent_name = "mii_phy_tx";
-		OF_prop_free(phy_type);
 
 		/* Get the TX clock */
 		error = clk_get_by_ofw_name(dev, "tx", &clk_tx);
@@ -983,6 +985,46 @@ awg_setup_extres(device_t dev)
 			goto fail;
 		}
 	}
+
+	error = 0;
+
+fail:
+	OF_prop_free(phy_type);
+	return (error);
+}
+
+static int
+awg_setup_extres(device_t dev)
+{
+	struct awg_softc *sc;
+	hwreset_t rst_ahb;
+	clk_t clk_ahb;
+	regulator_t reg;
+	phandle_t node;
+	uint64_t freq;
+	int error, div;
+
+	sc = device_get_softc(dev);
+	node = ofw_bus_get_node(dev);
+	rst_ahb = NULL;
+	clk_ahb = NULL;
+	reg = NULL;
+
+	/* Get AHB clock and reset resources */
+	error = hwreset_get_by_ofw_name(dev, "ahb", &rst_ahb);
+	if (error != 0) {
+		device_printf(dev, "cannot get ahb reset\n");
+		goto fail;
+	}
+	error = clk_get_by_ofw_name(dev, "ahb", &clk_ahb);
+	if (error != 0) {
+		device_printf(dev, "cannot get ahb clock\n");
+		goto fail;
+	}
+	
+	/* Configure PHY for MII or RGMII mode */
+	if (awg_setup_phy(dev) != 0)
+		goto fail;
 
 	/* Enable AHB clock */
 	error = clk_enable(clk_ahb);
@@ -1035,14 +1077,8 @@ awg_setup_extres(device_t dev)
 	return (0);
 
 fail:
-	OF_prop_free(phy_type);
-
 	if (reg != NULL)
 		regulator_release(reg);
-	if (clk_tx_parent != NULL)
-		clk_release(clk_tx_parent);
-	if (clk_tx != NULL)
-		clk_release(clk_tx);
 	if (clk_ahb != NULL)
 		clk_release(clk_ahb);
 	if (rst_ahb != NULL)
