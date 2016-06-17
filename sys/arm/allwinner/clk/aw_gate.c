@@ -44,6 +44,7 @@ __FBSDID("$FreeBSD$");
 #include <dev/ofw/ofw_bus.h>
 #include <dev/ofw/ofw_bus_subr.h>
 #include <dev/ofw/ofw_subr.h>
+#include <dev/fdt/fdt_common.h>
 
 #include <dev/extres/clk/clk_gate.h>
 
@@ -86,9 +87,6 @@ static struct ofw_compat_data compat_data[] = {
 
 	{ "allwinner,sun9i-a80-apbs-gates-clk",
 	  (uintptr_t)"Allwinner APBS Clock Gates" },
-
-	{ "allwinner,sunxi-multi-bus-gates-clk",
-	  (uintptr_t)"Allwinner Bus Clock Gates" },
 
 	{ NULL, 0 }
 };
@@ -160,11 +158,19 @@ static int
 aw_gate_probe(device_t dev)
 {
 	const char *d;
+	phandle_t parent;
 
 	if (!ofw_bus_status_okay(dev))
 		return (ENXIO);
 
 	d = (const char *)ofw_bus_search_compatible(dev, compat_data)->ocd_data;
+	if (d == NULL) {
+		if ((parent = OF_parent(ofw_bus_get_node(dev))) == 0)
+			return (ENXIO);
+		if (fdt_is_compatible(parent,
+		    "allwinner,sunxi-multi-bus-gates-clk") != 0)
+			d = "Allwinner Bus Clock Gates";
+	}
 	if (d == NULL)
 		return (ENXIO);
 
@@ -178,22 +184,24 @@ aw_gate_attach(device_t dev)
 	struct clkdom *clkdom;
 	bus_addr_t paddr;
 	bus_size_t psize;
-	phandle_t node, child;
+	phandle_t node, parent, regnode;
 
 	node = ofw_bus_get_node(dev);
+	parent = OF_parent(node);
 
-	if (ofw_reg_to_paddr(node, 0, &paddr, &psize, NULL) != 0) {
+	if (fdt_is_compatible(parent, "allwinner,sunxi-multi-bus-gates-clk"))
+		regnode = parent;
+	else
+		regnode = node;
+
+	if (ofw_reg_to_paddr(regnode, 0, &paddr, &psize, NULL) != 0) {
 		device_printf(dev, "cannot parse 'reg' property\n");
 		return (ENXIO);
 	}
 
 	clkdom = clkdom_create(dev);
 
-	if (ofw_bus_is_compatible(dev, "allwinner,sunxi-multi-bus-gates-clk")) {
-		for (child = OF_child(node); child > 0; child = OF_peer(child))
-			aw_gate_add(dev, clkdom, child, paddr);
-	} else
-		aw_gate_add(dev, clkdom, node, paddr);
+	aw_gate_add(dev, clkdom, node, paddr);
 
 	if (clkdom_finit(clkdom) != 0) {
 		device_printf(dev, "cannot finalize clkdom initialization\n");
