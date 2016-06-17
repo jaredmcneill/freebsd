@@ -50,7 +50,6 @@ arm/allwinner/clk/aw_hdmiclk.c		standard
 arm/allwinner/clk/aw_lcdclk.c		standard
 arm/allwinner/clk/aw_modclk.c		standard
 arm/allwinner/clk/aw_mmcclk.c		standard
-arm/allwinner/clk/aw_multigate.c	standard
 arm/allwinner/clk/aw_oscclk.c		standard
 arm/allwinner/clk/aw_pll.c		standard
 arm/allwinner/clk/aw_usbclk.c		standard

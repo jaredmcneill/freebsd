@@ -11,7 +11,6 @@ arm/allwinner/clk/aw_axiclk.c	optional	soc_allwinner_a64
 arm/allwinner/clk/aw_cpuclk.c	optional	soc_allwinner_a64
 arm/allwinner/clk/aw_gate.c	optional	soc_allwinner_a64
 arm/allwinner/clk/aw_modclk.c	optional	soc_allwinner_a64
-arm/allwinner/clk/aw_multigate.c optional	soc_allwinner_a64
 arm/allwinner/clk/aw_pll.c	optional	soc_allwinner_a64 \
 	compile-with "${NORMAL_C} -I$S/gnu/dts/include"
 arm/allwinner/if_awg.c		optional	awg
