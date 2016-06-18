@@ -102,6 +102,10 @@ __FBSDID("$FreeBSD$");
 
 /* syscon EMAC clock register */
 #define	EMAC_CLK_RMII_EN	(1 << 13)
+#define	EMAC_CLK_ETXDC		(0x7 << 10)
+#define	EMAC_CLK_ETXDC_SHIFT	10
+#define	EMAC_CLK_ERXDC		(0x1f << 5)
+#define	EMAC_CLK_ERXDC_SHIFT	5
 #define	EMAC_CLK_PIT		(0x1 << 2)
 #define	 EMAC_CLK_PIT_MII	(0 << 2)
 #define	 EMAC_CLK_PIT_RGMII	(1 << 2)
@@ -930,7 +934,7 @@ awg_setup_phy(device_t dev)
 	const char *tx_parent_name;
 	char *phy_type;
 	phandle_t node;
-	uint32_t reg;
+	uint32_t reg, tx_delay, rx_delay;
 	int error;
 
 	sc = device_get_softc(dev);
@@ -952,6 +956,15 @@ awg_setup_phy(device_t dev)
 			reg |= EMAC_CLK_RMII_EN;
 		else
 			reg |= EMAC_CLK_PIT_MII | EMAC_CLK_SRC_MII;
+
+		if (OF_getencprop(node, "tx-delay", &tx_delay, sizeof(tx_delay)) > 0) {
+			reg &= ~EMAC_CLK_ETXDC;
+			reg |= (tx_delay << EMAC_CLK_ETXDC_SHIFT);
+		}
+		if (OF_getencprop(node, "rx-delay", &rx_delay, sizeof(rx_delay)) > 0) {
+			reg &= ~EMAC_CLK_ERXDC;
+			reg |= (rx_delay << EMAC_CLK_ERXDC_SHIFT);
+		}
 		if (bootverbose)
 			device_printf(dev, "EMAC clock: 0x%08x\n", reg);
 		bus_write_4(sc->res[2], 0, reg);
