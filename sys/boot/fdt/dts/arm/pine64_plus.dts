@@ -28,6 +28,70 @@
 
 #include "sun50i-a64-pine64-plus.dts"
 
+#include <dt-bindings/gpio/gpio.h>
+
 &mmc0_pins {
 	allwinner,pull = <SUN4I_PINCTRL_PULL_UP>;
+};
+
+/ {
+	soc {
+		nmi_intc: interrupt-controller@01f00c0c {
+			compatible = "allwinner,sun6i-a31-sc-nmi";
+			interrupt-controller;
+			#interrupt-cells = <2>;
+			reg = <0x01f00c0c 0x38>;
+			interrupts = <GIC_SPI 32 IRQ_TYPE_LEVEL_HIGH>;
+		};
+
+		r_rsb: i2c@01f03400 {
+			compatible = "allwinner,sun8i-a23-rsb";
+			reg = <0x01f03400 0x400>;
+			interrupts = <GIC_SPI 39 IRQ_TYPE_LEVEL_HIGH>;
+			clock-frequency = <3000000>;
+			pinctrl-names = "default";
+			pinctrl-0 = <&r_rsb_pins>;
+			status = "disabled";
+			#address-cells = <1>;
+			#size-cells = <0>;
+		};
+	};
+};
+
+&pio {
+	r_rsb_pins: r_rsb {
+		allwinner,pins = "PL0", "PL1";
+		allwinner,function = "s_rsb";
+		allwinner,drive = <SUN4I_PINCTRL_20_MA>;
+		allwinner,pull = <SUN4I_PINCTRL_NO_PULL>;
+	};
+
+	emac_phy_reset_pin_pine64_plus: emac_phy_reset_pin@0 {
+		allwinner,pins = "PD14";
+		allwinner,function = "gpio_out";
+		allwinner,drive = <SUN4I_PINCTRL_10_MA>;
+		allwinner,pull = <SUN4I_PINCTRL_NO_PULL>;
+	};
+};
+
+&emac {
+	pinctrl-names = "default";
+	pinctrl-0 = <&rgmii_pins>, <&emac_phy_reset_pin_pine64_plus>;
+
+	allwinner,reset-gpio = <&pio 3 14 GPIO_ACTIVE_HIGH>;
+	allwinner,reset-active-low;
+	allwinner,reset-delays-us = <0 10000 30000>;
+};
+
+&r_rsb {
+	status = "okay";
+
+	axp81x: pmic@3a3 {
+		compatible = "x-powers,axp813";
+		reg = <0x3a3>;
+		interrupt-parent = <&nmi_intc>;
+		interrupts = <0 IRQ_TYPE_LEVEL_LOW>;
+		gpio-controller;
+		#gpio-cells = <1>;
+	};
 };

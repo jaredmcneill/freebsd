@@ -4,7 +4,11 @@ arm/allwinner/a10_mmc.c		optional	mmc
 arm/allwinner/a64/a64_padconf.c	optional	soc_allwinner_a64
 arm/allwinner/a64/a64_r_padconf.c optional	soc_allwinner_a64
 arm/allwinner/aw_ccu.c		optional	soc_allwinner_a64
+arm/allwinner/aw_nmi.c		optional	soc_allwinner_a64 \
+	compile-with "${NORMAL_C} -I$S/gnu/dts/include"
 arm/allwinner/aw_reset.c	optional	soc_allwinner_a64
+arm/allwinner/aw_rsb.c		optional	soc_allwinner_a64
+arm/allwinner/axp81x.c		optional	soc_allwinner_a64
 arm/allwinner/clk/aw_ahbclk.c	optional	soc_allwinner_a64
 arm/allwinner/clk/aw_apbclk.c	optional	soc_allwinner_a64
 arm/allwinner/clk/aw_axiclk.c	optional	soc_allwinner_a64

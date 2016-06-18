@@ -142,6 +142,9 @@ device		umass			# Disks/Mass storage - Requires scbus and da
 device		gpio
 device		fdt_pinctrl
 
+# I2C
+device		iicbus
+
 # Pseudo devices.
 device		loop		# Network loopback
 device		random		# Entropy device
@@ -173,3 +176,5 @@ options 	FDT
 
 # The crypto framework is required by IPSEC
 device		crypto			# Required by IPSEC
+
+options 	BOOTVERBOSE=1

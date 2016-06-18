@@ -454,6 +454,14 @@ axp81x_attach(device_t dev)
 		device_printf(dev, "chip ID 0x%02x\n", chip_id);
 	}
 
+	/* XXX enable DC1-SW */
+	{
+		uint8_t ctl;
+		axp81x_read(dev, 0x12, &ctl, 1);
+		device_printf(dev, "Output power on-off control 2 %08x -> %08x\n", ctl, ctl | (1 << 7));
+		axp81x_write(dev, 0x12, ctl | (1 << 7));
+	}
+
 	/* Enable IRQ on short power key press */
 	axp81x_write(dev, AXP_IRQEN1, 0);
 	axp81x_write(dev, AXP_IRQEN2, 0);
@@ -511,9 +519,11 @@ static devclass_t axp81x_devclass;
 extern devclass_t ofwgpiobus_devclass, gpioc_devclass;
 extern driver_t ofw_gpiobus_driver, gpioc_driver;
 
-DRIVER_MODULE(axp81x, iicbus, axp81x_driver, axp81x_devclass, 0, 0);
-DRIVER_MODULE(ofw_gpiobus, axp81x_pmu, ofw_gpiobus_driver,
-    ofwgpiobus_devclass, 0, 0);
-DRIVER_MODULE(gpioc, axp81x_pmu, gpioc_driver, gpioc_devclass, 0, 0);
+EARLY_DRIVER_MODULE(axp81x, iicbus, axp81x_driver, axp81x_devclass, 0, 0,
+    BUS_PASS_RESOURCE + BUS_PASS_ORDER_MIDDLE);
+EARLY_DRIVER_MODULE(ofw_gpiobus, axp81x_pmu, ofw_gpiobus_driver,
+    ofwgpiobus_devclass, 0, 0, BUS_PASS_RESOURCE + BUS_PASS_ORDER_MIDDLE);
+EARLY_DRIVER_MODULE(gpioc, axp81x_pmu, gpioc_driver, gpioc_devclass, 0, 0,
+    BUS_PASS_RESOURCE + BUS_PASS_ORDER_MIDDLE);
 MODULE_VERSION(axp81x, 1);
 MODULE_DEPEND(axp81x, iicbus, 1, 1, 1);

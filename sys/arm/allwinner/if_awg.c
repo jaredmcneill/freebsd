@@ -44,6 +44,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/sockio.h>
 #include <sys/module.h>
 #include <sys/taskqueue.h>
+#include <sys/gpio.h>
 
 #include <net/bpf.h>
 #include <net/if.h>
@@ -67,6 +68,7 @@ __FBSDID("$FreeBSD$");
 #include <dev/extres/regulator/regulator.h>
 
 #include "miibus_if.h"
+#include "gpio_if.h"
 
 #define	RD4(sc, reg)		bus_read_4((sc)->res[0], (reg))
 #define	WR4(sc, reg, val)	bus_write_4((sc)->res[0], (reg), (val))
@@ -938,17 +940,20 @@ awg_setup_phy(device_t dev)
 		return (0);
 
 	if (bootverbose)
-		device_printf(dev, "PHY type: %s\n", phy_type);
+		device_printf(dev, "PHY type: %s, conf mode: %s\n", phy_type,
+		    sc->res[2] != NULL ? "reg" : "clk");
 
 	if (sc->res[2] != NULL) {
 		reg = bus_read_4(sc->res[2], 0);
 		reg &= ~(EMAC_CLK_PIT | EMAC_CLK_SRC | EMAC_CLK_RMII_EN);
 		if (strcmp(phy_type, "rgmii") == 0)
-			reg |= EMAC_CLK_PIT_RGMII | EMAC_CLK_SRC_RGMII;
+			reg |= EMAC_CLK_PIT_RGMII | EMAC_CLK_SRC_RGMII | (1 << 16);	/* XXX */
 		else if (strcmp(phy_type, "rmii") == 0)
 			reg |= EMAC_CLK_RMII_EN;
 		else
 			reg |= EMAC_CLK_PIT_MII | EMAC_CLK_SRC_MII;
+		if (bootverbose)
+			device_printf(dev, "EMAC clock: 0x%08x\n", reg);
 		bus_write_4(sc->res[2], 0, reg);
 	} else {
 		if (strcmp(phy_type, "rgmii") == 0)
@@ -1156,6 +1161,52 @@ awg_dump_regs(device_t dev)
 }
 #endif
 
+#define	GPIO_ACTIVE_LOW		1
+
+static int
+awg_phy_reset(device_t dev)
+{
+	pcell_t gpio_prop[4], delay_prop[3];
+	phandle_t node, gpio_node;
+	device_t gpio;
+	uint32_t pin, flags;
+	uint32_t pin_value;
+
+	node = ofw_bus_get_node(dev);
+	if (OF_getencprop(node, "allwinner,reset-gpio", gpio_prop,
+	    sizeof(gpio_prop)) <= 0)
+		return (0);
+
+	if (OF_getencprop(node, "allwinner,reset-delays-us", delay_prop,
+	    sizeof(delay_prop)) <= 0)
+		return (ENXIO);
+
+	gpio_node = OF_node_from_xref(gpio_prop[0]);
+	if ((gpio = OF_device_from_xref(gpio_prop[0])) == NULL)
+		return (ENXIO);
+
+	if (GPIO_MAP_GPIOS(gpio, node, gpio_node, nitems(gpio_prop) - 1,
+	    gpio_prop + 1, &pin, &flags) != 0)
+		return (ENXIO);
+
+	pin_value = GPIO_PIN_LOW;
+	if (OF_hasprop(node, "allwinner,reset-active-low"))
+		pin_value = GPIO_PIN_HIGH;
+
+	if (flags & GPIO_ACTIVE_LOW)
+		pin_value = !pin_value;
+
+	GPIO_PIN_SETFLAGS(gpio, pin, GPIO_PIN_OUTPUT);
+	GPIO_PIN_SET(gpio, pin, pin_value);
+	DELAY(delay_prop[0]);
+	GPIO_PIN_SET(gpio, pin, !pin_value);
+	DELAY(delay_prop[1]);
+	GPIO_PIN_SET(gpio, pin, pin_value);
+	DELAY(delay_prop[2]);
+
+	return (0);
+}
+
 static int
 awg_reset(device_t dev)
 {
@@ -1163,6 +1214,12 @@ awg_reset(device_t dev)
 	int retry;
 
 	sc = device_get_softc(dev);
+
+	/* Reset PHY if necessary */
+	if (awg_phy_reset(dev) != 0) {
+		device_printf(dev, "failed to reset PHY\n");
+		return (ENXIO);
+	}
 
 	/* Soft reset all registers and logic */
 	WR4(sc, EMAC_BASIC_CTL_1, BASIC_CTL_SOFT_RST);
