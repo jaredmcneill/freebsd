@@ -35,6 +35,30 @@
 };
 
 / {
+	clocks {
+		pll_hsic: clk@01c20044 {
+			#clock-cells = <0>;
+			compatible = "allwinner,sun50i-a64-pllhsic-clk";
+			reg = <0x01c20044 0x4>;
+			clocks = <&osc24M>;
+			clock-output-names = "pll_hsic";
+		};
+
+		usb_clk: clk@01c200cc {
+			#clock-cells = <1>;
+			#reset-cells = <1>;
+			compatible = "allwinner,sun8i-a83t-usb-clk";
+			reg = <0x01c200cc 0x4>;
+			clocks = <&osc24M>, <&pll_hsic>;
+			clock-indices = <8>, <9>,
+					<10>, <11>,
+					<16>;
+			clock-output-names = "usb_phy0", "usb_phy1",
+					     "usb_hsic_pll", "usb_hsic_12m",
+					     "usb_ohci0";
+		};
+	};
+
 	soc {
 		nmi_intc: interrupt-controller@01f00c0c {
 			compatible = "allwinner,sun6i-a31-sc-nmi";
@@ -54,6 +78,48 @@
 			status = "disabled";
 			#address-cells = <1>;
 			#size-cells = <0>;
+		};
+
+		usbphy: phy@01c19400 {
+			compatible = "allwinner,sun8i-a83t-usb-phy";
+			clocks = <&usb_clk 8>,
+				 <&usb_clk 9>,
+				 <&usb_clk 10>,
+				 <&usb_clk 11>;
+			clock-names = "usb0_phy",
+				      "usb1_phy",
+				      "hsic_pll",
+				      "hsic_12m";
+			resets = <&usb_clk 0>,
+				 <&usb_clk 1>,
+				 <&usb_clk 2>;
+			reset-names = "usb0_reset",
+				      "usb1_reset",
+				      "usb2_reset";
+			status = "disabled";
+			#phy-cells = <1>;
+		};
+
+		ehci0: usb@01c1a000 {
+			compatible = "allwinner,sun8i-a83t-ehci", "generic-ehci";
+			reg = <0x01c1a000 0x100>;
+			interrupts = <GIC_SPI 72 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&bus_gates 24>;
+			resets = <&ahb_rst 24>;
+			phys = <&usbphy 1>;
+			phy-names = "usb";
+			status = "disabled";
+		};
+
+		ehci1: usb@01c1b000 {
+			compatible = "allwinner,sun8i-a83t-ehci", "generic-ehci";
+			reg = <0x01c1b000 0x100>;
+			interrupts = <GIC_SPI 74 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&bus_gates 25>;
+			resets = <&ahb_rst 25>;
+			phys = <&usbphy 2>;
+			phy-names = "usb";
+			status = "disabled";
 		};
 	};
 };
@@ -94,4 +160,16 @@
 		gpio-controller;
 		#gpio-cells = <1>;
 	};
+};
+
+&usbphy {
+	status = "okay";
+};
+
+&ehci0 {
+	status = "okay";
+};
+
+&ehci1 {
+	status = "okay";
 };

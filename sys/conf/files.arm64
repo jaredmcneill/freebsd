@@ -1,6 +1,7 @@
 # $FreeBSD$
-arm/allwinner/a10_gpio.c	optional	gpio
-arm/allwinner/a10_mmc.c		optional	mmc
+arm/allwinner/a10_ehci.c	optional	ehci soc_allwinner_a64
+arm/allwinner/a10_gpio.c	optional	gpio soc_allwinner_a64
+arm/allwinner/a10_mmc.c		optional	mmc soc_allwinner_a64
 arm/allwinner/a64/a64_padconf.c	optional	soc_allwinner_a64
 arm/allwinner/a64/a64_r_padconf.c optional	soc_allwinner_a64
 arm/allwinner/aw_ccu.c		optional	soc_allwinner_a64
@@ -8,6 +9,7 @@ arm/allwinner/aw_nmi.c		optional	soc_allwinner_a64 \
 	compile-with "${NORMAL_C} -I$S/gnu/dts/include"
 arm/allwinner/aw_reset.c	optional	soc_allwinner_a64
 arm/allwinner/aw_rsb.c		optional	soc_allwinner_a64
+arm/allwinner/aw_usbphy.c	optional	ehci soc_allwinner_a64
 arm/allwinner/axp81x.c		optional	soc_allwinner_a64
 arm/allwinner/clk/aw_ahbclk.c	optional	soc_allwinner_a64
 arm/allwinner/clk/aw_apbclk.c	optional	soc_allwinner_a64
@@ -17,6 +19,7 @@ arm/allwinner/clk/aw_gate.c	optional	soc_allwinner_a64
 arm/allwinner/clk/aw_modclk.c	optional	soc_allwinner_a64
 arm/allwinner/clk/aw_pll.c	optional	soc_allwinner_a64 \
 	compile-with "${NORMAL_C} -I$S/gnu/dts/include"
+arm/allwinner/clk/aw_usbclk.c	optional	soc_allwinner_a64
 arm/allwinner/if_awg.c		optional	awg
 arm/arm/generic_timer.c		standard
 arm/arm/gic.c			optional	intrng
