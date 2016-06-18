@@ -62,7 +62,11 @@ __FBSDID("$FreeBSD$");
 #define	LOSC_MAGIC			0x16aa0000
 #define	LOSC_BUSY_MASK			0x00000380
 
+#if defined(__aarch64__)
+#define	IS_SUN7I			0
+#else
 #define	IS_SUN7I 			(allwinner_soc_family() == ALLWINNERSOC_SUN7I)
+#endif
 
 #define	YEAR_MIN			(IS_SUN7I ? 1970 : 2010)
 #define	YEAR_MAX			(IS_SUN7I ? 2100 : 2073)
