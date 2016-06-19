@@ -603,7 +603,6 @@ cpu_find_cpu0_fdt(u_int id, phandle_t node, u_int addr_size, pcell_t *reg)
 void
 cpu_mp_setmaxid(void)
 {
-#if 0
 #ifdef FDT
 	int cores;
 
@@ -617,7 +616,6 @@ cpu_mp_setmaxid(void)
 		cpu_enum_method = CPUS_FDT;
 		return;
 	}
-#endif
 #endif
 
 	if (bootverbose)
