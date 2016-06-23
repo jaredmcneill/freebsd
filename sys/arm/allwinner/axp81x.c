@@ -461,6 +461,19 @@ axp81x_attach(device_t dev)
 		device_printf(dev, "Output power on-off control 2 %08x -> %08x\n", ctl, ctl | (1 << 7));
 		axp81x_write(dev, 0x12, ctl | (1 << 7));
 	}
+	/* XXX enable IPSOUT */
+	{
+		uint8_t ctl;
+
+		axp81x_read(dev, 0x8f, &ctl, 1);
+		device_printf(dev, "IRQ pin, hot-over shutdown %08x -> %08x\n", ctl, ctl & ~(1 << 4));
+		axp81x_write(dev, 0x8f, ctl & ~(1 << 4));
+
+		axp81x_read(dev, 0x30, &ctl, 1);
+		device_printf(dev, "VBUS path control & Hold voltage setting %08x -> %08x\n", ctl, ctl | (1 << 2));
+		axp81x_write(dev, 0x30, ctl | (1 << 2));
+		
+	}
 
 	/* Enable IRQ on short power key press */
 	axp81x_write(dev, AXP_IRQEN1, 0);
