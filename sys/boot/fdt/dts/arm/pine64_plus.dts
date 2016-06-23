@@ -150,7 +150,7 @@
 &emac {
 	pinctrl-names = "default";
 	pinctrl-0 = <&rgmii_pins>, <&emac_phy_reset_pin_pine64_plus>;
-
+	phy-supply = <&reg_dc1dc>;
 	allwinner,reset-gpio = <&pio 3 14 GPIO_ACTIVE_HIGH>;
 	allwinner,reset-active-low;
 	allwinner,reset-delays-us = <0 10000 30000>;
@@ -166,6 +166,12 @@
 		interrupts = <0 IRQ_TYPE_LEVEL_LOW>;
 		gpio-controller;
 		#gpio-cells = <1>;
+
+		regulators {
+			reg_dc1dc: dc1sw {
+				regulator-name = "dc1sw";
+			};
+		};
 	};
 };
 
