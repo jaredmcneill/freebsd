@@ -526,6 +526,7 @@ a31_pll6_init(device_t dev, bus_addr_t reg, struct clknode_init_def *def)
 	val &= ~(A31_PLL6_FACTOR_N | A31_PLL6_FACTOR_K | A31_PLL6_BYPASS_EN);
 	val |= (A31_PLL6_DEFAULT_N << A31_PLL6_FACTOR_N_SHIFT);
 	val |= (A31_PLL6_DEFAULT_K << A31_PLL6_FACTOR_K_SHIFT);
+	val |= AW_PLL_ENABLE;
 	CLKDEV_WRITE_4(dev, reg, val);
 
 	/* Wait for PLL to become stable */
@@ -537,11 +538,6 @@ a31_pll6_init(device_t dev, bus_addr_t reg, struct clknode_init_def *def)
 	}
 
 	CLKDEV_DEVICE_UNLOCK(dev);
-
-#if 0
-	if (retry == 0)
-		return (ETIMEDOUT);
-#endif
 
 	return (0);
 }
