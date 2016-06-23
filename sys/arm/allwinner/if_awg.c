@@ -70,8 +70,8 @@ __FBSDID("$FreeBSD$");
 #include "miibus_if.h"
 #include "gpio_if.h"
 
-#define	RD4(sc, reg)		bus_read_4((sc)->res[0], (reg))
-#define	WR4(sc, reg, val)	bus_write_4((sc)->res[0], (reg), (val))
+#define	RD4(sc, reg)		bus_read_4((sc)->res[_RES_EMAC], (reg))
+#define	WR4(sc, reg, val)	bus_write_4((sc)->res[_RES_EMAC], (reg), (val))
 
 #define	AWG_LOCK(sc)		mtx_lock(&(sc)->mtx)
 #define	AWG_UNLOCK(sc)		mtx_unlock(&(sc)->mtx);
@@ -161,8 +161,15 @@ struct awg_rxring {
 	u_int			cur;
 };
 
+enum {
+	_RES_EMAC,
+	_RES_IRQ,
+	_RES_SYSCON,
+	_RES_NITEMS
+};
+
 struct awg_softc {
-	struct resource		*res[3];
+	struct resource		*res[_RES_NITEMS];
 	struct mtx		mtx;
 	if_t			ifp;
 	device_t		miibus;
@@ -945,29 +952,31 @@ awg_setup_phy(device_t dev)
 
 	if (bootverbose)
 		device_printf(dev, "PHY type: %s, conf mode: %s\n", phy_type,
-		    sc->res[2] != NULL ? "reg" : "clk");
+		    sc->res[_RES_SYSCON] != NULL ? "reg" : "clk");
 
-	if (sc->res[2] != NULL) {
-		reg = bus_read_4(sc->res[2], 0);
+	if (sc->res[_RES_SYSCON] != NULL) {
+		reg = bus_read_4(sc->res[_RES_SYSCON], 0);
 		reg &= ~(EMAC_CLK_PIT | EMAC_CLK_SRC | EMAC_CLK_RMII_EN);
 		if (strcmp(phy_type, "rgmii") == 0)
-			reg |= EMAC_CLK_PIT_RGMII | EMAC_CLK_SRC_RGMII | (1 << 16);	/* XXX */
+			reg |= EMAC_CLK_PIT_RGMII | EMAC_CLK_SRC_RGMII;
 		else if (strcmp(phy_type, "rmii") == 0)
 			reg |= EMAC_CLK_RMII_EN;
 		else
 			reg |= EMAC_CLK_PIT_MII | EMAC_CLK_SRC_MII;
 
-		if (OF_getencprop(node, "tx-delay", &tx_delay, sizeof(tx_delay)) > 0) {
+		if (OF_getencprop(node, "tx-delay", &tx_delay,
+		    sizeof(tx_delay)) > 0) {
 			reg &= ~EMAC_CLK_ETXDC;
 			reg |= (tx_delay << EMAC_CLK_ETXDC_SHIFT);
 		}
-		if (OF_getencprop(node, "rx-delay", &rx_delay, sizeof(rx_delay)) > 0) {
+		if (OF_getencprop(node, "rx-delay", &rx_delay,
+		    sizeof(rx_delay)) > 0) {
 			reg &= ~EMAC_CLK_ERXDC;
 			reg |= (rx_delay << EMAC_CLK_ERXDC_SHIFT);
 		}
 		if (bootverbose)
 			device_printf(dev, "EMAC clock: 0x%08x\n", reg);
-		bus_write_4(sc->res[2], 0, reg);
+		bus_write_4(sc->res[_RES_SYSCON], 0, reg);
 	} else {
 		if (strcmp(phy_type, "rgmii") == 0)
 			tx_parent_name = "emac_int_tx";
@@ -1461,8 +1470,8 @@ awg_attach(device_t dev)
 		return (error);
 
 	/* Install interrupt handler */
-	error = bus_setup_intr(dev, sc->res[1], INTR_TYPE_NET | INTR_MPSAFE,
-	    NULL, awg_intr, sc, &sc->ih);
+	error = bus_setup_intr(dev, sc->res[_RES_IRQ],
+	    INTR_TYPE_NET | INTR_MPSAFE, NULL, awg_intr, sc, &sc->ih);
 	if (error != 0) {
 		device_printf(dev, "cannot setup interrupt handler\n");
 		return (error);
