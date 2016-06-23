@@ -1242,6 +1242,10 @@ pfioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flags, struct thread *td
 			error = ENOMEM;
 		if (pf_anchor_setup(rule, ruleset, pr->anchor_call))
 			error = EINVAL;
+		if (rule->scrub_flags & PFSTATE_SETPRIO &&
+		    (rule->set_prio[0] > PF_PRIO_MAX ||
+		    rule->set_prio[1] > PF_PRIO_MAX))
+			error = EINVAL;
 		TAILQ_FOREACH(pa, &V_pf_pabuf, entries)
 			if (pa->addr.type == PF_ADDR_TABLE) {
 				pa->addr.p.tbl = pfr_attach_table(ruleset,
@@ -1250,6 +1254,7 @@ pfioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flags, struct thread *td
 					error = ENOMEM;
 			}
 
+		rule->overload_tbl = NULL;
 		if (rule->overload_tblname[0]) {
 			if ((rule->overload_tbl = pfr_attach_table(ruleset,
 			    rule->overload_tblname)) == NULL)
@@ -1507,6 +1512,7 @@ DIOCADDRULE_error:
 						error = ENOMEM;
 				}
 
+			newrule->overload_tbl = NULL;
 			if (newrule->overload_tblname[0]) {
 				if ((newrule->overload_tbl = pfr_attach_table(
 				    ruleset, newrule->overload_tblname)) ==
@@ -3790,5 +3796,5 @@ static moduledata_t pf_mod = {
 	0
 };
 
-DECLARE_MODULE(pf, pf_mod, SI_SUB_PSEUDO, SI_ORDER_FIRST);
+DECLARE_MODULE(pf, pf_mod, SI_SUB_PROTO_FIREWALL, SI_ORDER_FIRST);
 MODULE_VERSION(pf, PF_MODVER);
