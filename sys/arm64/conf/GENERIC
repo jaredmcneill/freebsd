@@ -179,3 +179,4 @@ options 	FDT
 device		crypto			# Required by IPSEC
 
 #options 	BOOTVERBOSE=1
+options 	COMPAT_FREEBSD10
