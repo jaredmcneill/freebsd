@@ -78,7 +78,12 @@ __FBSDID("$FreeBSD$");
 #define	AWG_ASSERT_LOCKED(sc)	mtx_assert(&(sc)->mtx, MA_OWNED)
 #define	AWG_ASSERT_UNLOCKED(sc)	mtx_assert(&(sc)->mtx, MA_NOTOWNED)
 
+#if defined(__aarch64__)
+/* XXXJDM align to cacheline to workaround busdma issue */
+#define	DESC_ALIGN		64
+#else
 #define	DESC_ALIGN		4
+#endif
 #define	TX_DESC_COUNT		256
 #define	TX_DESC_SIZE		(sizeof(struct emac_desc) * TX_DESC_COUNT)
 #define	RX_DESC_COUNT		256

@@ -176,6 +176,10 @@ struct emac_desc {
 	uint32_t	addr;
 
 	uint32_t	next;
+
+#if defined(__aarch64__)
+	uint8_t		padding[48];	/* XXXJDM work around busdma issue */
+#endif
 } __packed;
 
 #endif /* !__IF_AWGREG_H__ */
