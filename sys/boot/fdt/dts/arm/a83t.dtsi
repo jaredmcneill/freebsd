@@ -97,6 +97,15 @@
 			interrupts = <GIC_SPI 32 IRQ_TYPE_LEVEL_HIGH>;
 		};
 
+		dma: dma-controller@01c02000 {
+			compatible = "allwinner,sun8i-a83t-dma";
+			reg = <0x01c02000 0x1000>;
+			interrupts = <GIC_SPI 50 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&bus_gates 6>;
+			resets = <&ahb_reset 6>;
+			#dma-cells = <1>;
+		};
+
 		i2c0: i2c@01c2ac00 {
 			compatible = "allwinner,sun8i-a83t-i2c";
 			reg = <0x01c2ac00 0x400>;
