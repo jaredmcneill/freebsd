@@ -738,12 +738,14 @@ tcp_destroy(void *unused __unused)
 	 * up, which means, we should be past the tcp_discardcb() calls.
 	 * Sleep to let all tcpcb timers really disappear and cleanup.
 	 */
-	do {
-		pause("tcpdes", hz/10);
+	for (;;) {
 		INP_LIST_RLOCK(&V_tcbinfo);
 		n = V_tcbinfo.ipi_count;
 		INP_LIST_RUNLOCK(&V_tcbinfo);
-	} while (n != 0);
+		if (n == 0)
+			break;
+		pause("tcpdes", hz / 10);
+	}
 	tcp_hc_destroy();
 	syncache_destroy();
 	tcp_tw_destroy();
@@ -1603,6 +1605,13 @@ tcp_drain(void)
 			if ((tcpb = intotcpcb(inpb)) != NULL) {
 				tcp_reass_flush(tcpb);
 				tcp_clean_sackreport(tcpb);
+#ifdef TCPPCAP
+				if (tcp_pcap_aggressive_free) {
+					/* Free the TCP PCAP queues. */
+					tcp_pcap_drain(&(tcpb->t_inpkts));
+					tcp_pcap_drain(&(tcpb->t_outpkts));
+				}
+#endif
 			}
 			INP_WUNLOCK(inpb);
 		}
