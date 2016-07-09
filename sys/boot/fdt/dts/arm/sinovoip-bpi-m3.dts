@@ -133,3 +133,9 @@
 		};
 	};
 };
+
+&i2s0 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&i2s0_pins_a>;
+	status = "okay";
+};

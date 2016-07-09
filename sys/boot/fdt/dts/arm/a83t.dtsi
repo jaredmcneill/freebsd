@@ -43,6 +43,14 @@
                         compatible = "allwinner,sun8i-a83t-cpus-clk";
 		};
 
+		pll_audio: clk@01c20008 {
+			#clock-cells = <0>;
+			compatible = "allwinner,sun8i-a83t-pll2-clk";
+			reg = <0x01c20008 0x4>;
+			clocks = <&osc24M>;
+			clock-output-names = "pll_audio";
+		};
+
 		pll_hsic: clk@01c20044 {
 			#clock-cells = <0>;
 			compatible = "allwinner,sun9i-a80-pll4-clk";
@@ -63,6 +71,14 @@
 			clock-output-names = "usb_phy0", "usb_phy1",
 					     "usb_hsic_pll", "usb_hsic_12m",
 					     "usb_ohci0";
+		};
+
+		i2s0_clk: clk@01c200b0 {
+			#clock-cells = <0>;
+			compatible = "allwinner,sun4i-a10-codec-clk";	/* XXX */
+			reg = <0x01c200b0 0x4>;
+			clocks = <&pll2>;
+			clock-output-names = "i2s0";
 		};
 
 		mii_phy_tx_clk: clk@1 {
@@ -206,6 +222,17 @@
 			interrupts = <GIC_SPI 41 IRQ_TYPE_LEVEL_HIGH>;
 			#thermal-sensor-cells = <0>;
 		};
+
+		i2s0: i2s@01c22000 {
+			compatible = "allwinner,sun8i-a83t-i2s";
+			reg = <0x01c22000 0x400>;
+			interrupts = <GIC_SPI 77 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&bus_gates 76>, <&i2s0_clk>;
+			clock-names = "apb", "i2s";
+			dmas = <&dma 3>, <&dma 4>;
+			dma-names = "rx", "tx";
+			status = "disabled";
+		};
 	};
 };
 
@@ -247,6 +274,13 @@
 		allwinner,pins = "PH4", "PH5";
 		allwinner,function = "i2c2";
 		allwinner,drive = <SUN4I_PINCTRL_10_MA>;
+		allwinner,pull = <SUN4I_PINCTRL_NO_PULL>;
+	};
+
+	i2s0_pins_a: i2s0@0 {
+		allwinner,pins = "PB4", "PB5", "PB6", "PB7", "PB8";
+		allwinner,function = "i2s0";
+		allwinner,drive = <SUN4I_PINCTRL_20_MA>;
 		allwinner,pull = <SUN4I_PINCTRL_NO_PULL>;
 	};
 };

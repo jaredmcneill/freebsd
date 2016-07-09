@@ -139,6 +139,15 @@ __FBSDID("$FreeBSD$");
 #define	A80_PLL4_FACTOR_N		(0xff << 8)
 #define	A80_PLL4_FACTOR_N_SHIFT		8
 
+#define	A83T_PLL2_PLL_SDM_EN		(1 << 24)
+#define	A83T_PLL2_CLOCK_OUTPUT		(1 << 20)
+#define	A83T_PLL2_PLL_DIV2		(1 << 18)
+#define	A83T_PLL2_PLL_DIV1		(1 << 16)
+#define	A83T_PLL2_FACTOR_N		(0xff << 8)
+#define	A83T_PLL2_FACTOR_N_SHIFT	8
+#define	A83T_PLL2_POSTDIV_P		(0x3f << 0)
+#define	A83T_PLL2_POSTDIV_P_SHIFT	0
+
 #define	CLKID_A10_PLL3_1X		0
 #define	CLKID_A10_PLL3_2X		1
 
@@ -163,6 +172,7 @@ enum aw_pll_type {
 	AWPLL_A31_PLL1,
 	AWPLL_A31_PLL6,
 	AWPLL_A80_PLL4,
+	AWPLL_A83T_PLL2,
 };
 
 struct aw_pll_sc {
@@ -578,6 +588,72 @@ a80_pll4_recalc(struct aw_pll_sc *sc, uint64_t *freq)
 	return (0);
 }
 
+static int
+a83t_pll2_recalc(struct aw_pll_sc *sc, uint64_t *freq)
+{
+	uint32_t val, div1, div2, n, p;
+
+	DEVICE_LOCK(sc);
+	PLL_READ(sc, &val);
+	DEVICE_UNLOCK(sc);
+
+	div2 = (val & A83T_PLL2_PLL_DIV2) != 0;
+	div1 = (val & A83T_PLL2_PLL_DIV1) != 0;
+	p = ((val & A83T_PLL2_POSTDIV_P) >> A83T_PLL2_POSTDIV_P_SHIFT);
+	n = ((val & A83T_PLL2_FACTOR_N) >> A83T_PLL2_FACTOR_N_SHIFT);
+
+	*freq = (*freq * n) / (div1 + 1) / (div2 + 1) / (p + 1);
+
+	return (0);
+}
+
+static int
+a83t_pll2_set_freq(struct aw_pll_sc *sc, uint64_t fin, uint64_t *fout,
+    int flags)
+{
+	uint32_t val, div1, div2, n, p;
+
+	/*
+	 * DAI needs PLL_AUDIO to be either 24576000 or 22579200.
+	 *
+	 * PLL_AUDIO output frequency is:
+	 *  (24MHz * n) / (div1 + 1) / (div2 + 1) / (p + 1).
+	 *
+	 * For 24576000: n=43, p=20 (register defaults)
+	 *     22579200: n=54, p=28
+	 */
+
+	switch (*fout) {
+	case 24576000:
+		n = 43;
+		p = 20;
+		break;
+	case 22579200:
+		n = 54;
+		p = 28;
+		break;
+	default:
+		return (EINVAL);
+	}
+	div1 = 0;
+	div2 = 1;
+
+	DEVICE_LOCK(sc);
+	PLL_READ(sc, &val);
+	val &= ~(A83T_PLL2_PLL_DIV2 | A83T_PLL2_PLL_DIV1 |
+	    A83T_PLL2_FACTOR_N | A83T_PLL2_POSTDIV_P);
+	if (div1)
+		val |= A83T_PLL2_PLL_DIV1;
+	if (div2)
+		val |= A83T_PLL2_PLL_DIV2;
+	val |= (n << A83T_PLL2_FACTOR_N_SHIFT);
+	val |= (p << A83T_PLL2_POSTDIV_P_SHIFT);
+	PLL_WRITE(sc, val);
+	DEVICE_UNLOCK(sc);
+
+	return (0);
+}
+
 #define	PLL(_type, _recalc, _set_freq, _init)	\
 	[(_type)] = {				\
 		.recalc = (_recalc),		\
@@ -595,6 +671,7 @@ static struct aw_pll_funcs aw_pll_func[] = {
 	PLL(AWPLL_A31_PLL1, a31_pll1_recalc, NULL, NULL),
 	PLL(AWPLL_A31_PLL6, a31_pll6_recalc, NULL, a31_pll6_init),
 	PLL(AWPLL_A80_PLL4, a80_pll4_recalc, NULL, NULL),
+	PLL(AWPLL_A83T_PLL2, a83t_pll2_recalc, a83t_pll2_set_freq, NULL),
 };
 
 static struct ofw_compat_data compat_data[] = {
@@ -606,6 +683,7 @@ static struct ofw_compat_data compat_data[] = {
 	{ "allwinner,sun6i-a31-pll1-clk",	AWPLL_A31_PLL1 },
 	{ "allwinner,sun6i-a31-pll6-clk",	AWPLL_A31_PLL6 },
 	{ "allwinner,sun8i-a23-pll1-clk",	AWPLL_A23_PLL1 },
+	{ "allwinner,sun8i-a83t-pll2-clk",	AWPLL_A83T_PLL2 },
 	{ "allwinner,sun9i-a80-pll4-clk",	AWPLL_A80_PLL4 },
 	{ NULL, 0 }
 };
