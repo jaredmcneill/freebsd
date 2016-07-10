@@ -197,6 +197,6 @@ struct a10_mmc_dma_desc {
 };
 
 /* DMA descriptors and data buffers must be aligned to 32-bits */
-#define	A10_MMC_DMA_ALIGN	4
+#define	A10_MMC_DMA_ALIGN		4
 
 #endif /* _A10_MMC_H_ */

@@ -44,12 +44,14 @@ __FBSDID("$FreeBSD$");
 #include <sys/systm.h>
 #include <sys/bus.h>
 #include <sys/endian.h>
+#include <sys/interrupt.h>
 #include <sys/malloc.h>
 #include <sys/module.h>
 #include <sys/mutex.h>
 #include <sys/pciio.h>
 #include <sys/queue.h>
 #include <sys/rman.h>
+#include <sys/rmlock.h>
 #include <sys/sbuf.h>
 #include <sys/sysctl.h>
 #include <vm/vm.h>
@@ -220,10 +222,7 @@ struct ntb_softc {
 	void			*ntb_ctx;
 	const struct ntb_ctx_ops *ctx_ops;
 	struct ntb_vec		*msix_vec;
-#define CTX_LOCK(sc)		mtx_lock(&(sc)->ctx_lock)
-#define CTX_UNLOCK(sc)		mtx_unlock(&(sc)->ctx_lock)
-#define CTX_ASSERT(sc,f)	mtx_assert(&(sc)->ctx_lock, (f))
-	struct mtx		ctx_lock;
+	struct rmlock		ctx_lock;
 
 	uint32_t		ppd;
 	enum ntb_conn_type	conn_type;
@@ -255,6 +254,7 @@ struct ntb_softc {
 	uint64_t			db_valid_mask;
 	uint64_t			db_link_mask;
 	uint64_t			db_mask;
+	uint64_t			fake_db_bell;	/* NTB_SB01BASE_LOCKUP*/
 
 	int				last_ts;	/* ticks @ last irq */
 
@@ -359,7 +359,6 @@ static void xeon_set_pbar_xlat(struct ntb_softc *, uint64_t base_addr,
     enum ntb_bar idx);
 static int xeon_setup_b2b_mw(struct ntb_softc *,
     const struct ntb_b2b_addr *addr, const struct ntb_b2b_addr *peer_addr);
-static int xeon_setup_msix_bar(struct ntb_softc *);
 static inline bool link_is_up(struct ntb_softc *ntb);
 static inline bool _xeon_link_is_up(struct ntb_softc *ntb);
 static inline bool atom_link_is_err(struct ntb_softc *ntb);
@@ -451,7 +450,7 @@ ntb_vm_memattr_to_str(vm_memattr_t pat)
 	}
 }
 
-static int g_ntb_msix_idx = 0;
+static int g_ntb_msix_idx = 1;
 SYSCTL_INT(_hw_ntb, OID_AUTO, msix_mw_idx, CTLFLAG_RDTUN, &g_ntb_msix_idx,
     0, "Use this memory window to access the peer MSIX message complex on "
     "certain Xeon-based NTB systems, as a workaround for a hardware errata.  "
@@ -657,7 +656,7 @@ ntb_attach(device_t device)
 	callout_init(&ntb->lr_timer, 1);
 	callout_init(&ntb->peer_msix_work, 1);
 	mtx_init(&ntb->db_mask_lock, "ntb hw bits", NULL, MTX_SPIN);
-	mtx_init(&ntb->ctx_lock, "ntb ctx", NULL, MTX_DEF);
+	rm_init(&ntb->ctx_lock, "ntb ctx");
 
 	if (ntb->type == NTB_ATOM)
 		error = ntb_detect_atom(ntb);
@@ -720,7 +719,7 @@ ntb_detach(device_t device)
 	ntb_teardown_interrupts(ntb);
 
 	mtx_destroy(&ntb->db_mask_lock);
-	mtx_destroy(&ntb->ctx_lock);
+	rm_destroy(&ntb->ctx_lock);
 
 	ntb_unmap_pci_bar(ntb);
 
@@ -1195,12 +1194,10 @@ ntb_db_set_mask(device_t dev, uint64_t bits)
 {
 	struct ntb_softc *ntb = device_get_softc(dev);
 
-	if (HAS_FEATURE(ntb, NTB_SB01BASE_LOCKUP))
-		return;
-
 	DB_MASK_LOCK(ntb);
 	ntb->db_mask |= bits;
-	db_iowrite(ntb, ntb->self_reg->db_mask, ntb->db_mask);
+	if (!HAS_FEATURE(ntb, NTB_SB01BASE_LOCKUP))
+		db_iowrite(ntb, ntb->self_reg->db_mask, ntb->db_mask);
 	DB_MASK_UNLOCK(ntb);
 }
 
@@ -1208,18 +1205,26 @@ static void
 ntb_db_clear_mask(device_t dev, uint64_t bits)
 {
 	struct ntb_softc *ntb = device_get_softc(dev);
+	uint64_t ibits;
+	int i;
 
 	KASSERT((bits & ~ntb->db_valid_mask) == 0,
 	    ("%s: Invalid bits 0x%jx (valid: 0x%jx)", __func__,
 	     (uintmax_t)(bits & ~ntb->db_valid_mask),
 	     (uintmax_t)ntb->db_valid_mask));
 
-	if (HAS_FEATURE(ntb, NTB_SB01BASE_LOCKUP))
-		return;
-
 	DB_MASK_LOCK(ntb);
+	ibits = ntb->fake_db_bell & ntb->db_mask & bits;
 	ntb->db_mask &= ~bits;
-	db_iowrite(ntb, ntb->self_reg->db_mask, ntb->db_mask);
+	if (HAS_FEATURE(ntb, NTB_SB01BASE_LOCKUP)) {
+		/* Simulate fake interrupts if unmasked DB bits are set. */
+		for (i = 0; i < XEON_NONLINK_DB_MSIX_BITS; i++) {
+			if ((ibits & ntb_db_vector_mask(dev, i)) != 0)
+				swi_sched(ntb->int_info[i].tag, 0);
+		}
+	} else {
+		db_iowrite(ntb, ntb->self_reg->db_mask, ntb->db_mask);
+	}
 	DB_MASK_UNLOCK(ntb);
 }
 
@@ -1228,17 +1233,8 @@ ntb_db_read(device_t dev)
 {
 	struct ntb_softc *ntb = device_get_softc(dev);
 
-	if (HAS_FEATURE(ntb, NTB_SB01BASE_LOCKUP)) {
-		uint64_t res;
-		unsigned i;
-
-		res = 0;
-		for (i = 0; i < XEON_NONLINK_DB_MSIX_BITS; i++) {
-			if (ntb->msix_vec[i].masked != 0)
-				res |= ntb_db_vector_mask(dev, i);
-		}
-		return (res);
-	}
+	if (HAS_FEATURE(ntb, NTB_SB01BASE_LOCKUP))
+		return (ntb->fake_db_bell);
 
 	return (db_ioread(ntb, ntb->self_reg->db_bell));
 }
@@ -1254,21 +1250,9 @@ ntb_db_clear(device_t dev, uint64_t bits)
 	     (uintmax_t)ntb->db_valid_mask));
 
 	if (HAS_FEATURE(ntb, NTB_SB01BASE_LOCKUP)) {
-		unsigned i;
-
-		for (i = 0; i < XEON_NONLINK_DB_MSIX_BITS; i++) {
-			if ((bits & ntb_db_vector_mask(dev, i)) != 0) {
-				DB_MASK_LOCK(ntb);
-				if (ntb->msix_vec[i].masked != 0) {
-					/* XXX These need a public API. */
-#if 0
-					pci_unmask_msix(ntb->device, i);
-#endif
-					ntb->msix_vec[i].masked = 0;
-				}
-				DB_MASK_UNLOCK(ntb);
-			}
-		}
+		DB_MASK_LOCK(ntb);
+		ntb->fake_db_bell &= ~bits;
+		DB_MASK_UNLOCK(ntb);
 		return;
 	}
 
@@ -1279,6 +1263,19 @@ static inline uint64_t
 ntb_vec_mask(struct ntb_softc *ntb, uint64_t db_vector)
 {
 	uint64_t shift, mask;
+
+	if (HAS_FEATURE(ntb, NTB_SB01BASE_LOCKUP)) {
+		/*
+		 * Remap vectors in custom way to make at least first
+		 * three doorbells to not generate stray events.
+		 * This breaks Linux compatibility (if one existed)
+		 * when more then one DB is used (not by if_ntb).
+		 */
+		if (db_vector < XEON_NONLINK_DB_MSIX_BITS - 1)
+			return (1 << db_vector);
+		if (db_vector == XEON_NONLINK_DB_MSIX_BITS - 1)
+			return (0x7ffc);
+	}
 
 	shift = ntb->db_vec_shift;
 	mask = (1ull << shift) - 1;
@@ -1301,13 +1298,16 @@ ntb_interrupt(struct ntb_softc *ntb, uint32_t vec)
 	if (HAS_FEATURE(ntb, NTB_SB01BASE_LOCKUP) &&
 	    (vec_mask & ntb->db_link_mask) == 0) {
 		DB_MASK_LOCK(ntb);
-		if (ntb->msix_vec[vec].masked == 0) {
-			/* XXX These need a public API. */
-#if 0
-			pci_mask_msix(ntb->device, vec);
-#endif
-			ntb->msix_vec[vec].masked = 1;
-		}
+
+		/* Do not report same DB events again if not cleared yet. */
+		vec_mask &= ~ntb->fake_db_bell;
+
+		/* Update our internal doorbell register. */
+		ntb->fake_db_bell |= vec_mask;
+
+		/* Do not report masked DB events. */
+		vec_mask &= ~ntb->db_mask;
+
 		DB_MASK_UNLOCK(ntb);
 	}
 
@@ -1440,6 +1440,16 @@ ntb_detect_xeon(struct ntb_softc *ntb)
 	if ((ppd & XEON_PPD_SPLIT_BAR) != 0)
 		ntb->features |= NTB_SPLIT_BAR;
 
+	if (HAS_FEATURE(ntb, NTB_SB01BASE_LOCKUP) &&
+	    !HAS_FEATURE(ntb, NTB_SPLIT_BAR)) {
+		device_printf(ntb->device,
+		    "Can not apply SB01BASE_LOCKUP workaround "
+		    "with split BARs disabled!\n");
+		device_printf(ntb->device,
+		    "Expect system hangs under heavy NTB traffic!\n");
+		ntb->features &= ~NTB_SB01BASE_LOCKUP;
+	}
+
 	/*
 	 * SDOORBELL errata workaround gets in the way of SB01BASE_LOCKUP
 	 * errata workaround; only do one at a time.
@@ -1510,6 +1520,7 @@ ntb_xeon_init_dev(struct ntb_softc *ntb)
 	ntb->xlat_reg = &xeon_sec_xlat;
 
 	if (HAS_FEATURE(ntb, NTB_SB01BASE_LOCKUP)) {
+		ntb->fake_db_bell = 0;
 		ntb->msix_mw_idx = (ntb->mw_count + g_ntb_msix_idx) %
 		    ntb->mw_count;
 		ntb_printf(2, "Setting up MSIX mw idx %d means %u\n",
@@ -1565,10 +1576,6 @@ ntb_xeon_init_dev(struct ntb_softc *ntb)
 	ntb->db_mask = ntb->db_valid_mask;
 	db_iowrite(ntb, ntb->self_reg->db_mask, ntb->db_mask);
 	DB_MASK_UNLOCK(ntb);
-
-	rc = xeon_setup_msix_bar(ntb);
-	if (rc != 0)
-		return (rc);
 
 	rc = ntb_init_isr(ntb);
 	return (rc);
@@ -1732,19 +1739,6 @@ xeon_set_pbar_xlat(struct ntb_softc *ntb, uint64_t base_addr, enum ntb_bar idx)
 }
 
 static int
-xeon_setup_msix_bar(struct ntb_softc *ntb)
-{
-	enum ntb_bar bar_num;
-
-	if (!HAS_FEATURE(ntb, NTB_SB01BASE_LOCKUP))
-		return (0);
-
-	bar_num = ntb_mw_to_bar(ntb, ntb->msix_mw_idx);
-	ntb->peer_lapic_bar =  &ntb->bar_info[bar_num];
-	return (0);
-}
-
-static int
 xeon_setup_b2b_mw(struct ntb_softc *ntb, const struct ntb_b2b_addr *addr,
     const struct ntb_b2b_addr *peer_addr)
 {
@@ -1823,41 +1817,26 @@ xeon_setup_b2b_mw(struct ntb_softc *ntb, const struct ntb_b2b_addr *addr,
 	ntb_reg_write(8, XEON_SBAR4XLAT_OFFSET, 0);
 
 	if (HAS_FEATURE(ntb, NTB_SB01BASE_LOCKUP)) {
-		size_t size, xlatoffset;
-
-		switch (ntb_mw_to_bar(ntb, ntb->msix_mw_idx)) {
-		case NTB_B2B_BAR_1:
-			size = 8;
-			xlatoffset = XEON_SBAR2XLAT_OFFSET;
-			break;
-		case NTB_B2B_BAR_2:
-			xlatoffset = XEON_SBAR4XLAT_OFFSET;
-			if (HAS_FEATURE(ntb, NTB_SPLIT_BAR))
-				size = 4;
-			else
-				size = 8;
-			break;
-		case NTB_B2B_BAR_3:
-			xlatoffset = XEON_SBAR5XLAT_OFFSET;
-			size = 4;
-			break;
-		default:
-			KASSERT(false, ("Bogus msix mw idx: %u",
-			    ntb->msix_mw_idx));
-			return (EINVAL);
-		}
+		uint32_t xlat_reg, lmt_reg;
+		enum ntb_bar bar_num;
 
 		/*
 		 * We point the chosen MSIX MW BAR xlat to remote LAPIC for
 		 * workaround
 		 */
-		if (size == 4) {
-			ntb_reg_write(4, xlatoffset, MSI_INTEL_ADDR_BASE);
-			ntb->msix_xlat = ntb_reg_read(4, xlatoffset);
+		bar_num = ntb_mw_to_bar(ntb, ntb->msix_mw_idx);
+		bar_get_xlat_params(ntb, bar_num, NULL, &xlat_reg, &lmt_reg);
+		if (bar_is_64bit(ntb, bar_num)) {
+			ntb_reg_write(8, xlat_reg, MSI_INTEL_ADDR_BASE);
+			ntb->msix_xlat = ntb_reg_read(8, xlat_reg);
+			ntb_reg_write(8, lmt_reg, 0);
 		} else {
-			ntb_reg_write(8, xlatoffset, MSI_INTEL_ADDR_BASE);
-			ntb->msix_xlat = ntb_reg_read(8, xlatoffset);
+			ntb_reg_write(4, xlat_reg, MSI_INTEL_ADDR_BASE);
+			ntb->msix_xlat = ntb_reg_read(4, xlat_reg);
+			ntb_reg_write(8, lmt_reg, 0);
 		}
+
+		ntb->peer_lapic_bar =  &ntb->bar_info[bar_num];
 	}
 	(void)ntb_reg_read(8, XEON_SBAR2XLAT_OFFSET);
 	(void)ntb_reg_read(8, XEON_SBAR4XLAT_OFFSET);
@@ -2012,17 +1991,15 @@ ntb_set_ctx(device_t dev, void *ctx, const struct ntb_ctx_ops *ops)
 
 	if (ctx == NULL || ops == NULL)
 		return (EINVAL);
-	if (ntb->ctx_ops != NULL)
-		return (EINVAL);
 
-	CTX_LOCK(ntb);
+	rm_wlock(&ntb->ctx_lock);
 	if (ntb->ctx_ops != NULL) {
-		CTX_UNLOCK(ntb);
+		rm_wunlock(&ntb->ctx_lock);
 		return (EINVAL);
 	}
 	ntb->ntb_ctx = ctx;
 	ntb->ctx_ops = ops;
-	CTX_UNLOCK(ntb);
+	rm_wunlock(&ntb->ctx_lock);
 
 	return (0);
 }
@@ -2047,10 +2024,10 @@ ntb_clear_ctx(device_t dev)
 {
 	struct ntb_softc *ntb = device_get_softc(dev);
 
-	CTX_LOCK(ntb);
+	rm_wlock(&ntb->ctx_lock);
 	ntb->ntb_ctx = NULL;
 	ntb->ctx_ops = NULL;
-	CTX_UNLOCK(ntb);
+	rm_wunlock(&ntb->ctx_lock);
 }
 
 /*
@@ -2064,11 +2041,12 @@ static void
 ntb_link_event(device_t dev)
 {
 	struct ntb_softc *ntb = device_get_softc(dev);
+	struct rm_priotracker ctx_tracker;
 
-	CTX_LOCK(ntb);
+	rm_rlock(&ntb->ctx_lock, &ctx_tracker);
 	if (ntb->ctx_ops != NULL && ntb->ctx_ops->link_event != NULL)
 		ntb->ctx_ops->link_event(ntb->ntb_ctx);
-	CTX_UNLOCK(ntb);
+	rm_runlock(&ntb->ctx_lock, &ctx_tracker);
 }
 
 /*
@@ -2088,11 +2066,12 @@ static void
 ntb_db_event(device_t dev, uint32_t vec)
 {
 	struct ntb_softc *ntb = device_get_softc(dev);
+	struct rm_priotracker ctx_tracker;
 
-	CTX_LOCK(ntb);
+	rm_rlock(&ntb->ctx_lock, &ctx_tracker);
 	if (ntb->ctx_ops != NULL && ntb->ctx_ops->db_event != NULL)
 		ntb->ctx_ops->db_event(ntb->ntb_ctx, vec);
-	CTX_UNLOCK(ntb);
+	rm_runlock(&ntb->ctx_lock, &ctx_tracker);
 }
 
 static int
