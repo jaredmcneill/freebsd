@@ -197,7 +197,7 @@ a10_mmc_attach(device_t dev)
 		sc->a10_fifo_reg = A31_MMC_FIFO;
 		break;
 	}
-#else
+#else /* __aarch64__ */
 	sc->a10_fifo_reg = A31_MMC_FIFO;
 #endif
 

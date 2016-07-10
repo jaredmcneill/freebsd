@@ -177,6 +177,3 @@ options 	FDT
 
 # The crypto framework is required by IPSEC
 device		crypto			# Required by IPSEC
-
-#options 	BOOTVERBOSE=1
-options 	COMPAT_FREEBSD10

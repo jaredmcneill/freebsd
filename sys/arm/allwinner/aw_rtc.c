@@ -64,7 +64,7 @@ __FBSDID("$FreeBSD$");
 
 #if defined(__aarch64__)
 #define	IS_SUN7I			0
-#else
+#else /* __arm__ */
 #define	IS_SUN7I 			(allwinner_soc_family() == ALLWINNERSOC_SUN7I)
 #endif
 

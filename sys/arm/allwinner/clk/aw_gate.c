@@ -136,13 +136,11 @@ aw_gate_add(device_t dev, struct clkdom *clkdom, phandle_t node,
 	nout = clk_parse_ofw_out_names(dev, node, &names, &indices);
 	if (nout == 0) {
 		device_printf(dev, "no clock outputs found\n");
-		error = ENOENT;
-		goto fail;
+		return (ENOENT);
 	}
 	if (indices == NULL) {
 		device_printf(dev, "no clock-indices property\n");
-		error = ENXIO;
-		goto fail;
+		return (ENXIO);
 	}
 
 	error = clk_get_by_ofw_node_index(dev, node, 0, &clk_parent);
@@ -155,13 +153,10 @@ aw_gate_add(device_t dev, struct clkdom *clkdom, phandle_t node,
 		error = aw_gate_create(dev, paddr, clkdom,
 		    clk_get_name(clk_parent), names[index], indices[index]);
 		if (error)
-			goto fail;
+			return (error);
 	}
 
 	return (0);
-
-fail:
-	return (error);
 }
 
 static int

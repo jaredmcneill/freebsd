@@ -41,8 +41,6 @@ __FBSDID("$FreeBSD$");
 #include <sys/module.h>
 #include <sys/gpio.h>
 
-#include <machine/_inttypes.h>
-
 #include <dev/ofw/ofw_bus.h>
 #include <dev/ofw/ofw_bus_subr.h>
 #include <dev/gpio/gpiobusvar.h>
@@ -180,8 +178,8 @@ awusbphy_phy_enable(device_t dev, intptr_t phy, bool enable)
 		error = regulator_disable(reg);
 	if (error != 0) {
 		device_printf(dev,
-		    "couldn't %s regulator for phy %" PRIdPTR "\n",
-		    enable ? "enable" : "disable", phy);
+		    "couldn't %s regulator for phy %jd\n",
+		    enable ? "enable" : "disable", (intmax_t)phy);
 		return (error);
 	}
 
