@@ -143,7 +143,7 @@ aw_gate_add(device_t dev, struct clkdom *clkdom, phandle_t node,
 		return (ENXIO);
 	}
 
-	error = clk_get_by_ofw_node_index(dev, node, 0, &clk_parent);
+	error = clk_get_by_ofw_index(dev, node, 0, &clk_parent);
 	if (error != 0) {
 		device_printf(dev, "cannot parse clock parent\n");
 		return (ENXIO);
