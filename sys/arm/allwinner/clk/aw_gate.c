@@ -192,7 +192,7 @@ aw_gate_attach(device_t dev)
 
 	clkdom = clkdom_create(dev);
 
-	if (fdt_is_compatible(node, "allwinner,sunxi-multi-bus-gates-clk")) {
+	if (ofw_bus_is_compatible(dev, "allwinner,sunxi-multi-bus-gates-clk")) {
 		for (child = OF_child(node); child > 0; child = OF_peer(child))
 			aw_gate_add(dev, clkdom, child, paddr);
 	} else
