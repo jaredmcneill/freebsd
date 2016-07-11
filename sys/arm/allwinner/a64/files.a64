@@ -1,4 +1,0 @@
-# $FreeBSD$
-
-arm/allwinner/a64/a64_padconf.c		standard
-arm/allwinner/a64/a64_r_padconf.c	standard
