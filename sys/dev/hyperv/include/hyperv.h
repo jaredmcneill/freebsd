@@ -77,10 +77,6 @@ typedef uint8_t	hv_bool_uint8_t;
 #define HV_VMBUS_VERSION_WIN8		((2 << 16) | (4))
 #define HV_VMBUS_VERSION_WIN8_1		((3 << 16) | (0))
 
-#define HV_VMBUS_VERSION_INVALID	-1
-
-#define HV_VMBUS_VERSION_CURRENT	HV_VMBUS_VERSION_WIN8_1
-
 /*
  * Make maximum size of pipe payload of 16K
  */
@@ -121,10 +117,12 @@ typedef uint8_t	hv_bool_uint8_t;
 		    HV_ALIGN_DOWN(addr, PAGE_SIZE)) >> PAGE_SHIFT )
 
 typedef struct hv_guid {
-	 unsigned char data[16];
+	uint8_t data[16];
 } __packed hv_guid;
 
-int snprintf_hv_guid(char *, size_t, const hv_guid *);
+#define HYPERV_GUID_STRLEN	40
+
+int	hyperv_guid2str(const struct hv_guid *, char *, size_t);
 
 #define HV_NIC_GUID							\
 	.data = {0x63, 0x51, 0x61, 0xF8, 0x3E, 0xDF, 0xc5, 0x46,	\
@@ -535,20 +533,6 @@ typedef struct {
 	uint32_t			child_rel_id;
 } __packed hv_vmbus_channel_relid_released;
 
-typedef struct {
-	hv_vmbus_channel_msg_header	header;
-	uint32_t			vmbus_version_requested;
-	uint32_t			padding2;
-	uint64_t			interrupt_page;
-	uint64_t			monitor_page_1;
-	uint64_t			monitor_page_2;
-} __packed hv_vmbus_channel_initiate_contact;
-
-typedef struct {
-	hv_vmbus_channel_msg_header header;
-	hv_bool_uint8_t		version_supported;
-} __packed hv_vmbus_channel_version_response;
-
 typedef hv_vmbus_channel_msg_header hv_vmbus_channel_unload;
 
 #define HW_MACADDR_LEN	6
@@ -729,6 +713,7 @@ typedef struct {
 typedef struct hv_vmbus_channel {
 	TAILQ_ENTRY(hv_vmbus_channel)	list_entry;
 	struct hv_device*		device;
+	struct vmbus_softc		*vmbus_sc;
 	hv_vmbus_channel_state		state;
 	hv_vmbus_channel_offer_channel	offer_msg;
 	/*
@@ -824,6 +809,8 @@ typedef struct hv_vmbus_channel {
 	void				*hv_chan_priv1;
 	void				*hv_chan_priv2;
 	void				*hv_chan_priv3;
+
+	struct task			ch_detach_task;
 } hv_vmbus_channel;
 
 #define HV_VMBUS_CHAN_ISPRIMARY(chan)	((chan)->primary_channel == NULL)
