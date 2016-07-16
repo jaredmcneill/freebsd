@@ -104,6 +104,11 @@ __FBSDID("$FreeBSD$");
 #define	RX_BATCH_DEFAULT	64
 
 /* syscon EMAC clock register */
+#define	EMAC_CLK_EPHY_ADDR	(0x1f << 20)	/* H3 */
+#define	EMAC_CLK_EPHY_ADDR_SHIFT 20
+#define	EMAC_CLK_EPHY_LED_POL	(1 << 17)	/* H3 */
+#define	EMAC_CLK_EPHY_SHUTDOWN	(1 << 16)	/* H3 */
+#define	EMAC_CLK_EPHY_SELECT	(1 << 15)	/* H3 */
 #define	EMAC_CLK_RMII_EN	(1 << 13)
 #define	EMAC_CLK_ETXDC		(0x7 << 10)
 #define	EMAC_CLK_ETXDC_SHIFT	10
@@ -116,10 +121,6 @@ __FBSDID("$FreeBSD$");
 #define	 EMAC_CLK_SRC_MII	(0 << 0)
 #define	 EMAC_CLK_SRC_EXT_RGMII	(1 << 0)
 #define	 EMAC_CLK_SRC_RGMII	(2 << 0)
-
-/* H3 specific */
-#define	H3_EPHY_SHUTDOWN	(1 << 16)
-#define	H3_EPHY_SELECT		(1 << 15)
 
 /* Burst length of RX and TX DMA transfers */
 static int awg_burst_len = BURST_LEN_DEFAULT;
@@ -141,9 +142,14 @@ TUNABLE_INT("hw.awg.tx_interval", &awg_tx_interval);
 static int awg_rx_batch = RX_BATCH_DEFAULT;
 TUNABLE_INT("hw.awg.rx_batch", &awg_rx_batch);
 
+enum awg_type {
+	EMAC_A83T = 1,
+	EMAC_H3,
+};
+
 static struct ofw_compat_data compat_data[] = {
-	{ "allwinner,sun8i-a83t-emac",		1 },
-	{ "allwinner,sun8i-h3-emac",		1 },
+	{ "allwinner,sun8i-a83t-emac",		EMAC_A83T },
+	{ "allwinner,sun8i-h3-emac",		EMAC_H3 },
 	{ NULL,					0 }
 };
 
@@ -190,6 +196,7 @@ struct awg_softc {
 	u_int			mdc_div_ratio_m;
 	int			link;
 	int			if_flags;
+	enum awg_type		type;
 
 	struct awg_txring	tx;
 	struct awg_rxring	rx;
@@ -1086,10 +1093,22 @@ awg_setup_phy(device_t dev)
 			reg |= (rx_delay << EMAC_CLK_ERXDC_SHIFT);
 		}
 
-		if (OF_hasprop(node, "allwinner,use-internal-phy")) {
-			/* XXX */
-		} else {
-			reg &= ~H3_EPHY_SELECT;
+		if (sc->type == EMAC_H3) {
+			if (OF_hasprop(node, "allwinner,use-internal-phy")) {
+				reg |= EMAC_CLK_EPHY_SELECT;
+				reg &= ~EMAC_CLK_EPHY_SHUTDOWN;
+				if (OF_hasprop(node,
+				    "allwinner,leds-active-low"))
+					reg |= EMAC_CLK_EPHY_LED_POL;
+				else
+					reg &= ~EMAC_CLK_EPHY_LED_POL;
+
+				/* Set internal PHY addr to 1 */
+				reg &= ~EMAC_CLK_EPHY_ADDR;
+				reg |= (1 << EMAC_CLK_EPHY_ADDR_SHIFT);
+			} else {
+				reg &= ~EMAC_CLK_EPHY_SELECT;
+			}
 		}
 
 		if (bootverbose)
@@ -1558,6 +1577,7 @@ awg_attach(device_t dev)
 	int error;
 
 	sc = device_get_softc(dev);
+	sc->type = ofw_bus_search_compatible(dev, compat_data)->ocd_data;
 	node = ofw_bus_get_node(dev);
 
 	if (bus_alloc_resources(dev, awg_spec, sc->res) != 0) {
