@@ -1161,8 +1161,8 @@ static int
 awg_setup_extres(device_t dev)
 {
 	struct awg_softc *sc;
-	hwreset_t rst_ahb;
-	clk_t clk_ahb;
+	hwreset_t rst_ahb, rst_ephy;
+	clk_t clk_ahb, clk_ephy;
 	regulator_t reg;
 	phandle_t node;
 	uint64_t freq;
@@ -1170,8 +1170,8 @@ awg_setup_extres(device_t dev)
 
 	sc = device_get_softc(dev);
 	node = ofw_bus_get_node(dev);
-	rst_ahb = NULL;
-	clk_ahb = NULL;
+	rst_ahb = rst_ephy = NULL;
+	clk_ahb = clk_ephy = NULL;
 	reg = NULL;
 
 	/* Get AHB clock and reset resources */
@@ -1180,21 +1180,32 @@ awg_setup_extres(device_t dev)
 		device_printf(dev, "cannot get ahb reset\n");
 		goto fail;
 	}
+	if (hwreset_get_by_ofw_name(dev, 0, "ephy", &rst_ephy) != 0)
+		rst_ephy = NULL;
 	error = clk_get_by_ofw_name(dev, 0, "ahb", &clk_ahb);
 	if (error != 0) {
 		device_printf(dev, "cannot get ahb clock\n");
 		goto fail;
 	}
+	if (clk_get_by_ofw_name(dev, 0, "ephy", &clk_ephy) != 0)
+		clk_ephy = NULL;
 	
 	/* Configure PHY for MII or RGMII mode */
 	if (awg_setup_phy(dev) != 0)
 		goto fail;
 
-	/* Enable AHB clock */
+	/* Enable clocks */
 	error = clk_enable(clk_ahb);
 	if (error != 0) {
 		device_printf(dev, "cannot enable ahb clock\n");
 		goto fail;
+	}
+	if (clk_ephy != NULL) {
+		error = clk_enable(clk_ephy);
+		if (error != 0) {
+			device_printf(dev, "cannot enable ephy clock\n");
+			goto fail;
+		}
 	}
 
 	/* De-assert reset */
@@ -1202,6 +1213,13 @@ awg_setup_extres(device_t dev)
 	if (error != 0) {
 		device_printf(dev, "cannot de-assert ahb reset\n");
 		goto fail;
+	}
+	if (rst_ephy != NULL) {
+		error = hwreset_deassert(rst_ephy);
+		if (error != 0) {
+			device_printf(dev, "cannot de-assert ephy reset\n");
+			goto fail;
+		}
 	}
 
 	/* Enable PHY regulator if applicable */
@@ -1243,8 +1261,12 @@ awg_setup_extres(device_t dev)
 fail:
 	if (reg != NULL)
 		regulator_release(reg);
+	if (clk_ephy != NULL)
+		clk_release(clk_ephy);
 	if (clk_ahb != NULL)
 		clk_release(clk_ahb);
+	if (rst_ephy != NULL)
+		hwreset_release(rst_ephy);
 	if (rst_ahb != NULL)
 		hwreset_release(rst_ahb);
 	return (error);
