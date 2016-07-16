@@ -68,7 +68,15 @@
 	};
 };
 
+
+/*
+ * Board-specific stuff here
+ */
+
 / {
+	model = "Xunlong Orange Pi Plus 2E";
+	compatible = "xunlong,orangepi-plus-2e", "allwinner,sun8i-h3";
+
 	reg_gmac_3v3: gmac-3v3 {
 		compatible = "regulator-fixed";
 		pinctrl-names = "default";
@@ -95,4 +103,8 @@
 	phy1: ethernet-phy@1 {
 		reg = <1>;
 	};
+};
+
+&ehci2 {
+	status = "okay";
 };
