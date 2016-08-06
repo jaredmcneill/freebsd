@@ -30,6 +30,8 @@
  * Allwinner Gigabit Ethernet MAC (EMAC) controller
  */
 
+#include "opt_device_polling.h"
+
 #include <sys/cdefs.h>
 __FBSDID("$FreeBSD$");
 
@@ -84,7 +86,7 @@ __FBSDID("$FreeBSD$");
 #else
 #define	DESC_ALIGN		4
 #endif
-#define	TX_DESC_COUNT		256
+#define	TX_DESC_COUNT		1024
 #define	TX_DESC_SIZE		(sizeof(struct emac_desc) * TX_DESC_COUNT)
 #define	RX_DESC_COUNT		256
 #define	RX_DESC_SIZE		(sizeof(struct emac_desc) * RX_DESC_COUNT)
@@ -104,6 +106,26 @@ __FBSDID("$FreeBSD$");
 #define	RX_TX_PRI_DEFAULT	0
 #define	PAUSE_TIME_DEFAULT	0x400
 #define	TX_INTERVAL_DEFAULT	64
+#define	RX_BATCH_DEFAULT	64
+
+/* syscon EMAC clock register */
+#define	EMAC_CLK_EPHY_ADDR	(0x1f << 20)	/* H3 */
+#define	EMAC_CLK_EPHY_ADDR_SHIFT 20
+#define	EMAC_CLK_EPHY_LED_POL	(1 << 17)	/* H3 */
+#define	EMAC_CLK_EPHY_SHUTDOWN	(1 << 16)	/* H3 */
+#define	EMAC_CLK_EPHY_SELECT	(1 << 15)	/* H3 */
+#define	EMAC_CLK_RMII_EN	(1 << 13)
+#define	EMAC_CLK_ETXDC		(0x7 << 10)
+#define	EMAC_CLK_ETXDC_SHIFT	10
+#define	EMAC_CLK_ERXDC		(0x1f << 5)
+#define	EMAC_CLK_ERXDC_SHIFT	5
+#define	EMAC_CLK_PIT		(0x1 << 2)
+#define	 EMAC_CLK_PIT_MII	(0 << 2)
+#define	 EMAC_CLK_PIT_RGMII	(1 << 2)
+#define	EMAC_CLK_SRC		(0x3 << 0)
+#define	 EMAC_CLK_SRC_MII	(0 << 0)
+#define	 EMAC_CLK_SRC_EXT_RGMII	(1 << 0)
+#define	 EMAC_CLK_SRC_RGMII	(2 << 0)
 
 /* syscon EMAC clock register */
 #define	EMAC_CLK_RMII_EN	(1 << 13)
@@ -135,9 +157,18 @@ TUNABLE_INT("hw.awg.pause_time", &awg_pause_time);
 static int awg_tx_interval = TX_INTERVAL_DEFAULT;
 TUNABLE_INT("hw.awg.tx_interval", &awg_tx_interval);
 
+/* Maximum number of mbufs to send to if_input */
+static int awg_rx_batch = RX_BATCH_DEFAULT;
+TUNABLE_INT("hw.awg.rx_batch", &awg_rx_batch);
+
+enum awg_type {
+	EMAC_A83T = 1,
+	EMAC_H3,
+};
+
 static struct ofw_compat_data compat_data[] = {
-	{ "allwinner,sun8i-a83t-emac",		1 },
-	{ "allwinner,sun8i-h3-emac",		1 },
+	{ "allwinner,sun8i-a83t-emac",		EMAC_A83T },
+	{ "allwinner,sun8i-h3-emac",		EMAC_H3 },
 	{ NULL,					0 }
 };
 
@@ -184,6 +215,7 @@ struct awg_softc {
 	u_int			mdc_div_ratio_m;
 	int			link;
 	int			if_flags;
+	enum awg_type		type;
 
 	struct awg_txring	tx;
 	struct awg_rxring	rx;
@@ -383,7 +415,7 @@ awg_setup_txdesc(struct awg_softc *sc, int index, int flags, bus_addr_t paddr,
 		status = TX_DESC_CTL;
 		size = flags | len;
 		if ((index & (awg_tx_interval - 1)) == 0)
-			size |= htole32(TX_INT_CTL);
+			size |= TX_INT_CTL;
 		++sc->tx.queued;
 	}
 
@@ -647,6 +679,20 @@ awg_setup_rxfilter(struct awg_softc *sc)
 }
 
 static void
+awg_enable_intr(struct awg_softc *sc)
+{
+	/* Enable interrupts */
+	WR4(sc, EMAC_INT_EN, RX_INT_EN | TX_INT_EN | TX_BUF_UA_INT_EN);
+}
+
+static void
+awg_disable_intr(struct awg_softc *sc)
+{
+	/* Disable interrupts */
+	WR4(sc, EMAC_INT_EN, 0);
+}
+
+static void
 awg_init_locked(struct awg_softc *sc)
 {
 	struct mii_data *mii;
@@ -670,11 +716,18 @@ awg_init_locked(struct awg_softc *sc)
 	WR4(sc, EMAC_BASIC_CTL_1, val);
 
 	/* Enable interrupts */
-	WR4(sc, EMAC_INT_EN, RX_INT_EN | TX_INT_EN | TX_BUF_UA_INT_EN);
+#ifdef DEVICE_POLLING
+	if ((if_getcapenable(ifp) & IFCAP_POLLING) == 0)
+		awg_enable_intr(sc);
+	else
+		awg_disable_intr(sc);
+#else
+	awg_enable_intr(sc);
+#endif
 
 	/* Enable transmit DMA */
 	val = RD4(sc, EMAC_TX_CTL_1);
-	WR4(sc, EMAC_TX_CTL_1, val | TX_DMA_EN | TX_MD);
+	WR4(sc, EMAC_TX_CTL_1, val | TX_DMA_EN | TX_MD | TX_NEXT_FRAME);
 
 	/* Enable receive DMA */
 	val = RD4(sc, EMAC_RX_CTL_1);
@@ -733,7 +786,7 @@ awg_stop(struct awg_softc *sc)
 	WR4(sc, EMAC_RX_CTL_0, val & ~RX_EN);
 
 	/* Disable interrupts */
-	WR4(sc, EMAC_INT_EN, 0);
+	awg_disable_intr(sc);
 
 	/* Disable transmit DMA */
 	val = RD4(sc, EMAC_TX_CTL_1);
@@ -748,15 +801,18 @@ awg_stop(struct awg_softc *sc)
 	if_setdrvflagbits(ifp, 0, IFF_DRV_RUNNING | IFF_DRV_OACTIVE);
 }
 
-static void
+static int
 awg_rxintr(struct awg_softc *sc)
 {
 	if_t ifp;
-	struct mbuf *m, *m0;
-	int error, index, len;
+	struct mbuf *m, *m0, *mh, *mt;
+	int error, index, len, cnt, npkt;
 	uint32_t status;
 
 	ifp = sc->ifp;
+	mh = mt = NULL;
+	cnt = 0;
+	npkt = 0;
 
 	bus_dmamap_sync(sc->rx.desc_tag, sc->rx.desc_map,
 	    BUS_DMASYNC_POSTREAD | BUS_DMASYNC_POSTWRITE);
@@ -790,9 +846,23 @@ awg_rxintr(struct awg_softc *sc)
 				}
 			}
 
-			AWG_UNLOCK(sc);
-			if_input(ifp, m);
-			AWG_LOCK(sc);
+			m->m_nextpkt = NULL;
+			if (mh == NULL)
+				mh = m;
+			else
+				mt->m_nextpkt = m;
+			mt = m;
+			++cnt;
+			++npkt;
+
+			if (cnt == awg_rx_batch) {
+				AWG_UNLOCK(sc);
+				if_input(ifp, mh);
+				AWG_LOCK(sc);
+				mh = mt = NULL;
+				cnt = 0;
+			}
+			
 		}
 
 		if ((m0 = awg_alloc_mbufcl(sc)) != NULL) {
@@ -809,7 +879,15 @@ awg_rxintr(struct awg_softc *sc)
 		    BUS_DMASYNC_PREWRITE);
 	}
 
+	if (mh != NULL) {
+		AWG_UNLOCK(sc);
+		if_input(ifp, mh);
+		AWG_LOCK(sc);
+	}
+
 	sc->rx.cur = index;
+
+	return (npkt);
 }
 
 static void
@@ -875,6 +953,41 @@ awg_intr(void *arg)
 	AWG_UNLOCK(sc);
 }
 
+#ifdef DEVICE_POLLING
+static int
+awg_poll(if_t ifp, enum poll_cmd cmd, int count)
+{
+	struct awg_softc *sc;
+	uint32_t val;
+	int rx_npkts;
+
+	sc = if_getsoftc(ifp);
+	rx_npkts = 0;
+
+	AWG_LOCK(sc);
+
+	if ((if_getdrvflags(ifp) & IFF_DRV_RUNNING) == 0) {
+		AWG_UNLOCK(sc);
+		return (0);
+	}
+
+	rx_npkts = awg_rxintr(sc);
+	awg_txintr(sc);
+	if (!if_sendq_empty(ifp))
+		awg_start_locked(sc);
+
+	if (cmd == POLL_AND_CHECK_STATUS) {
+		val = RD4(sc, EMAC_INT_STA);
+		if (val != 0)
+			WR4(sc, EMAC_INT_STA, val);
+	}
+
+	AWG_UNLOCK(sc);
+
+	return (rx_npkts);
+}
+#endif
+
 static int
 awg_ioctl(if_t ifp, u_long cmd, caddr_t data)
 {
@@ -919,6 +1032,25 @@ awg_ioctl(if_t ifp, u_long cmd, caddr_t data)
 		break;
 	case SIOCSIFCAP:
 		mask = ifr->ifr_reqcap ^ if_getcapenable(ifp);
+#ifdef DEVICE_POLLING
+		if (mask & IFCAP_POLLING) {
+			if ((ifr->ifr_reqcap & IFCAP_POLLING) != 0) {
+				error = ether_poll_register(awg_poll, ifp);
+				if (error != 0)
+					break;
+				AWG_LOCK(sc);
+				awg_disable_intr(sc);
+				if_setcapenablebit(ifp, IFCAP_POLLING, 0);
+				AWG_UNLOCK(sc);
+			} else {
+				error = ether_poll_deregister(ifp);
+				AWG_LOCK(sc);
+				awg_enable_intr(sc);
+				if_setcapenablebit(ifp, 0, IFCAP_POLLING);
+				AWG_UNLOCK(sc);
+			}
+		}
+#endif
 		if (mask & IFCAP_VLAN_MTU)
 			if_togglecapenable(ifp, IFCAP_VLAN_MTU);
 		if (mask & IFCAP_RXCSUM)
@@ -979,6 +1111,25 @@ awg_setup_phy(device_t dev)
 			reg &= ~EMAC_CLK_ERXDC;
 			reg |= (rx_delay << EMAC_CLK_ERXDC_SHIFT);
 		}
+
+		if (sc->type == EMAC_H3) {
+			if (OF_hasprop(node, "allwinner,use-internal-phy")) {
+				reg |= EMAC_CLK_EPHY_SELECT;
+				reg &= ~EMAC_CLK_EPHY_SHUTDOWN;
+				if (OF_hasprop(node,
+				    "allwinner,leds-active-low"))
+					reg |= EMAC_CLK_EPHY_LED_POL;
+				else
+					reg &= ~EMAC_CLK_EPHY_LED_POL;
+
+				/* Set internal PHY addr to 1 */
+				reg &= ~EMAC_CLK_EPHY_ADDR;
+				reg |= (1 << EMAC_CLK_EPHY_ADDR_SHIFT);
+			} else {
+				reg &= ~EMAC_CLK_EPHY_SELECT;
+			}
+		}
+
 		if (bootverbose)
 			device_printf(dev, "EMAC clock: 0x%08x\n", reg);
 		bus_write_4(sc->res[_RES_SYSCON], 0, reg);
@@ -1029,8 +1180,8 @@ static int
 awg_setup_extres(device_t dev)
 {
 	struct awg_softc *sc;
-	hwreset_t rst_ahb;
-	clk_t clk_ahb;
+	hwreset_t rst_ahb, rst_ephy;
+	clk_t clk_ahb, clk_ephy;
 	regulator_t reg;
 	phandle_t node;
 	uint64_t freq;
@@ -1038,8 +1189,8 @@ awg_setup_extres(device_t dev)
 
 	sc = device_get_softc(dev);
 	node = ofw_bus_get_node(dev);
-	rst_ahb = NULL;
-	clk_ahb = NULL;
+	rst_ahb = rst_ephy = NULL;
+	clk_ahb = clk_ephy = NULL;
 	reg = NULL;
 
 	/* Get AHB clock and reset resources */
@@ -1048,21 +1199,32 @@ awg_setup_extres(device_t dev)
 		device_printf(dev, "cannot get ahb reset\n");
 		goto fail;
 	}
+	if (hwreset_get_by_ofw_name(dev, 0, "ephy", &rst_ephy) != 0)
+		rst_ephy = NULL;
 	error = clk_get_by_ofw_name(dev, 0, "ahb", &clk_ahb);
 	if (error != 0) {
 		device_printf(dev, "cannot get ahb clock\n");
 		goto fail;
 	}
+	if (clk_get_by_ofw_name(dev, 0, "ephy", &clk_ephy) != 0)
+		clk_ephy = NULL;
 	
 	/* Configure PHY for MII or RGMII mode */
 	if (awg_setup_phy(dev) != 0)
 		goto fail;
 
-	/* Enable AHB clock */
+	/* Enable clocks */
 	error = clk_enable(clk_ahb);
 	if (error != 0) {
 		device_printf(dev, "cannot enable ahb clock\n");
 		goto fail;
+	}
+	if (clk_ephy != NULL) {
+		error = clk_enable(clk_ephy);
+		if (error != 0) {
+			device_printf(dev, "cannot enable ephy clock\n");
+			goto fail;
+		}
 	}
 
 	/* De-assert reset */
@@ -1070,6 +1232,13 @@ awg_setup_extres(device_t dev)
 	if (error != 0) {
 		device_printf(dev, "cannot de-assert ahb reset\n");
 		goto fail;
+	}
+	if (rst_ephy != NULL) {
+		error = hwreset_deassert(rst_ephy);
+		if (error != 0) {
+			device_printf(dev, "cannot de-assert ephy reset\n");
+			goto fail;
+		}
 	}
 
 	/* Enable PHY regulator if applicable */
@@ -1111,8 +1280,12 @@ awg_setup_extres(device_t dev)
 fail:
 	if (reg != NULL)
 		regulator_release(reg);
+	if (clk_ephy != NULL)
+		clk_release(clk_ephy);
 	if (clk_ahb != NULL)
 		clk_release(clk_ahb);
+	if (rst_ephy != NULL)
+		hwreset_release(rst_ephy);
 	if (rst_ahb != NULL)
 		hwreset_release(rst_ahb);
 	return (error);
@@ -1445,6 +1618,7 @@ awg_attach(device_t dev)
 	int error;
 
 	sc = device_get_softc(dev);
+	sc->type = ofw_bus_search_compatible(dev, compat_data)->ocd_data;
 	node = ofw_bus_get_node(dev);
 
 	if (bus_alloc_resources(dev, awg_spec, sc->res) != 0) {
@@ -1495,6 +1669,9 @@ awg_attach(device_t dev)
 	if_sethwassist(sc->ifp, CSUM_IP | CSUM_UDP | CSUM_TCP);
 	if_setcapabilities(sc->ifp, IFCAP_VLAN_MTU | IFCAP_HWCSUM);
 	if_setcapenable(sc->ifp, if_getcapabilities(sc->ifp));
+#ifdef DEVICE_POLLING
+	if_setcapabilitiesbit(sc->ifp, IFCAP_POLLING, 0);
+#endif
 
 	/* Attach MII driver */
 	error = mii_attach(dev, &sc->miibus, sc->ifp, awg_media_change,
