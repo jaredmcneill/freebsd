@@ -439,6 +439,7 @@ efi_cons_getchar()
 	/* Try to read a key stroke. We wait for one if none is pending. */
 	status = conin->ReadKeyStroke(conin, &key);
 	while (status == EFI_NOT_READY) {
+		/* Some EFI implementation (u-boot for example) do not support WaitForKey */
 		if (conin->WaitForKey != NULL)
 			BS->WaitForEvent(1, &conin->WaitForKey, &junk);
 		status = conin->ReadKeyStroke(conin, &key);
@@ -455,6 +456,9 @@ efi_cons_getchar()
 int
 efi_cons_poll()
 {
+
+	if (conin->WaitForKey == NULL)
+		return (1);
 	/* This can clear the signaled state. */
 	return (BS->CheckEvent(conin->WaitForKey) == EFI_SUCCESS);
 }
