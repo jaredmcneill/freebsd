@@ -57,7 +57,8 @@ __FBSDID("$FreeBSD$");
 #include <dev/extres/clk/clk.h>
 #include <dev/extres/hwreset/hwreset.h>
 
-#include <dt-bindings/pinctrl/sun4i-a10.h>
+#define	SUN4I_PINCTRL_PULL_UP	1
+#define	SUN4I_PINCTRL_PULL_DOWN	2
 
 #if defined(__aarch64__)
 #include "opt_soc.h"
