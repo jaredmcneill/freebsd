@@ -178,3 +178,15 @@ options 	FDT
 
 # The crypto framework is required by IPSEC
 device		crypto			# Required by IPSEC
+
+# Allwinner devices
+device		aw_ccu		# Allwinner clock controller
+device		aw_ehci		# Allwinner EHCI USB interface (USB 2.0)
+device		aw_gpio		# Allwinner GPIO controller
+device		aw_mmc		# Allwinner SD/MMC controller
+device		aw_nmi		# Allwinner NMI support
+device		aw_rsb		# Allwinner Reduced Serial Bus
+device		aw_rtc		# Allwinner Real-time Clock
+device		aw_usbphy	# Allwinner USB PHY
+device		aw_wdog		# Allwinner Watchdog
+device		axp81x		# X-Powers AXP81x PMIC
