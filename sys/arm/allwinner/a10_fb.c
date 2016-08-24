@@ -60,14 +60,15 @@ __FBSDID("$FreeBSD$");
 #include "fb_if.h"
 #include "hdmi_if.h"
 
-#define	FB_DEFAULT_W	800
-#define	FB_DEFAULT_H	600
+#define	FB_DEFAULT_W	1024
+#define	FB_DEFAULT_H	768
 #define	FB_DEFAULT_REF	60
 #define	FB_BPP		32
 #define	FB_ALIGN	0x1000
 
 #define	HDMI_ENABLE_DELAY	20000
 #define	DEBE_FREQ		300000000
+#define	HDMI13_MAX_BW		(2560 * 1600 * 75)
 
 #define	DOT_CLOCK_TO_HZ(c)	((c) * 1000)
 
@@ -525,6 +526,55 @@ a10fb_configure(struct a10fb_softc *sc, const struct videomode *mode)
 	return (0);
 }
 
+static int
+a10fb_parse_mode(const char *s, unsigned int *pw, unsigned int *ph, unsigned int *pr)
+{
+	char *x, *at;
+
+	x = strchr(s, 'x');
+	if (x == NULL)
+		return (EINVAL);
+
+	*pw = strtoul(s, NULL, 10);
+	*ph = strtoul(x + 1, NULL, 10);
+
+	at = strchr(x + 1, '@');
+	if (at == NULL)
+		*pr = FB_DEFAULT_REF;
+	else
+		*pr = strtoul(at + 1, NULL, 10);
+
+	return (0);
+}
+
+static const struct videomode *
+a10fb_pick_mode_by_ref(struct edid_info *ei, int w, int h, int ref)
+{
+	const struct videomode *cur, *best;
+	int n, mref, closest, diff;
+
+	best = NULL;
+	closest = 1000;
+
+	for (n = 0; n < ei->edid_nmodes; n++) {
+		cur = &ei->edid_modes[n];
+		mref = cur->dot_clock * 1000 / (cur->htotal * cur->vtotal);
+		diff = abs(mref - ref);
+		if (cur->hdisplay != w || cur->vdisplay != h)
+			continue;
+		if (diff < closest || best == NULL) {
+			best = cur;
+			closest = diff;
+		}
+	}
+
+	if (best != NULL)
+		return (best);
+
+	/* Mode not found in EDID block, try standard modes */
+	return (pick_mode_by_ref(w, h, ref));
+}
+
 static void
 a10fb_hdmi_event(void *arg, device_t hdmi_dev)
 {
@@ -532,8 +582,10 @@ a10fb_hdmi_event(void *arg, device_t hdmi_dev)
 	struct videomode hdmi_mode;
 	struct a10fb_softc *sc;
 	struct edid_info ei;
+	char *hintmode;
 	uint8_t *edid;
 	uint32_t edid_len;
+	int hintw, hinth, hintr, mref;
 	int error;
 
 	sc = arg;
@@ -556,7 +608,21 @@ a10fb_hdmi_event(void *arg, device_t hdmi_dev)
 		}
 	}
 
-	/* If the preferred mode could not be determined, use the default */
+	/* If a hint is provided, override the EDID preferred mode */
+	hintmode = kern_getenv("hw.a10fb.mode");
+	if (hintmode != NULL) {
+		if (a10fb_parse_mode(hintmode, &hintw, &hinth, &hintr) == 0)
+			mode = a10fb_pick_mode_by_ref(&ei, hintw, hinth, hintr);
+	}
+
+	/* Make sure the mode fits within HDMI 1.3 bandwidth constraints */
+	if (mode != NULL) {
+		mref = mode->dot_clock * 1000 / (mode->htotal * mode->vtotal);
+		if (mode->hdisplay * mode->vdisplay * mref > HDMI13_MAX_BW)
+			mode = NULL;
+	}
+
+	/* If the mode could not be determined, use the default */
 	if (mode == NULL)
 		mode = pick_mode_by_ref(FB_DEFAULT_W, FB_DEFAULT_H,
 		    FB_DEFAULT_REF);
