@@ -123,10 +123,6 @@
 	};
 };
 
-&mmc0_pins {
-	allwinner,pull = <SUN4I_PINCTRL_PULL_UP>;
-};
-
 &pio {
 	r_rsb_pins: r_rsb {
 		allwinner,pins = "PL0", "PL1";
