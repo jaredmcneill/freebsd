@@ -1457,7 +1457,7 @@ awg_setup_dma(device_t dev)
 	}
 
 	error = bus_dmamem_alloc(sc->tx.desc_tag, (void **)&sc->tx.desc_ring,
-	    BUS_DMA_NOCACHE | BUS_DMA_WAITOK | BUS_DMA_ZERO, &sc->tx.desc_map);
+	    BUS_DMA_COHERENT | BUS_DMA_WAITOK | BUS_DMA_ZERO, &sc->tx.desc_map);
 	if (error != 0) {
 		device_printf(dev, "cannot allocate TX descriptor ring\n");
 		return (error);
@@ -1520,7 +1520,7 @@ awg_setup_dma(device_t dev)
 	}
 
 	error = bus_dmamem_alloc(sc->rx.desc_tag, (void **)&sc->rx.desc_ring,
-	    BUS_DMA_NOCACHE | BUS_DMA_WAITOK | BUS_DMA_ZERO, &sc->rx.desc_map);
+	    BUS_DMA_COHERENT | BUS_DMA_WAITOK | BUS_DMA_ZERO, &sc->rx.desc_map);
 	if (error != 0) {
 		device_printf(dev, "cannot allocate RX descriptor ring\n");
 		return (error);
