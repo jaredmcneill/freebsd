@@ -120,6 +120,7 @@ device		da
 device		pass		# Passthrough device (direct ATA/SCSI access)
 
 # MMC/SD/SDIO Card slot support
+device		aw_mmc			# Allwinner SD/MMC controller
 device		mmc			# mmc/sd bus
 device		mmcsd			# mmc/sd flash cards
 device		dwmmc
@@ -132,6 +133,8 @@ device		pl011
 
 # USB support
 options 	USB_DEBUG		# enable debug msgs
+device		aw_ehci			# Allwinner EHCI USB interface (USB 2.0)
+device		aw_usbphy		# Allwinner USB PHY
 device		dwcotg			# DWC OTG controller
 device		ohci			# OHCI USB interface
 device		ehci			# EHCI USB interface (USB 2.0)
@@ -141,11 +144,28 @@ device		ukbd			# Keyboard
 device		umass			# Disks/Mass storage - Requires scbus and da
 
 # GPIO
+device		aw_gpio		# Allwinner GPIO controller
 device		gpio
 device		fdt_pinctrl
 
 # I2C
+device		aw_rsb		# Allwinner Reduced Serial Bus
 device		iicbus
+
+# Clock and reset controllers
+device		aw_ccu		# Allwinner clock controller
+
+# Interrupt controllers
+device		aw_nmi		# Allwinner NMI support
+
+# Real-time clock support
+device		aw_rtc		# Allwinner Real-time Clock
+
+# Watchdog controllers
+device		aw_wdog		# Allwinner Watchdog
+
+# Power management controllers
+device		axp81x		# X-Powers AXP81x PMIC
 
 # Pseudo devices.
 device		loop		# Network loopback
@@ -178,15 +198,3 @@ options 	FDT
 
 # The crypto framework is required by IPSEC
 device		crypto			# Required by IPSEC
-
-# Allwinner devices
-device		aw_ccu		# Allwinner clock controller
-device		aw_ehci		# Allwinner EHCI USB interface (USB 2.0)
-device		aw_gpio		# Allwinner GPIO controller
-device		aw_mmc		# Allwinner SD/MMC controller
-device		aw_nmi		# Allwinner NMI support
-device		aw_rsb		# Allwinner Reduced Serial Bus
-device		aw_rtc		# Allwinner Real-time Clock
-device		aw_usbphy	# Allwinner USB PHY
-device		aw_wdog		# Allwinner Watchdog
-device		axp81x		# X-Powers AXP81x PMIC
