@@ -79,11 +79,3 @@
 &ohci0 {
 	status = "okay";
 };
-
-&ehci1 {
-	status = "okay";
-};
-
-&ohci1 {
-	status = "okay";
-};
