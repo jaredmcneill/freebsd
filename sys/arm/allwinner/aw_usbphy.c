@@ -53,7 +53,7 @@ __FBSDID("$FreeBSD$");
 
 #include "phy_if.h"
 
-#define	USBPHY_NRES	2
+#define	USBPHY_NRES	3
 #define	USBPHY_NPHYS	4
 
 enum awusbphy_type {
@@ -90,6 +90,7 @@ struct awusbphy_softc {
 static struct resource_spec awusbphy_spec[] = {
 	{ SYS_RES_MEMORY,	0,	RF_ACTIVE },
 	{ SYS_RES_MEMORY,	1,	RF_ACTIVE },
+	{ SYS_RES_MEMORY,	2,	RF_ACTIVE },
 	{ -1, 0 }
 };
 
@@ -98,6 +99,8 @@ static struct resource_spec awusbphy_spec[] = {
 #define	CLR4(sc, i, o, m)	WR4(sc, i, o, RD4(sc, i, o) & ~(m))
 #define	SET4(sc, i, o, m)	WR4(sc, i, o, RD4(sc, i, o) | (m))
 
+#define	OTG_PHY_CFG	0x20
+#define	 OTG_PHY_ROUTE_OTG	(1 << 0)
 #define	PMU_IRQ_ENABLE	0x00
 #define	 PMU_AHB_INCR8		(1 << 10)
 #define	 PMU_AHB_INCR4		(1 << 9)
@@ -116,8 +119,15 @@ awusbphy_configure(device_t dev, int phyno)
 	if (sc->res[phyno] == NULL)
 		return;
 
-	if (sc->phy_type == AWUSBPHY_TYPE_A64)
+	if (sc->phy_type == AWUSBPHY_TYPE_A64)  {
 		CLR4(sc, phyno, PMU_UNK_H3, PMU_UNK_H3_CLR);
+
+		/* EHCI0 and OTG share a PHY */
+		if (phyno == 0)
+			SET4(sc, 0, OTG_PHY_CFG, OTG_PHY_ROUTE_OTG);
+		else if (phyno == 1)
+			CLR4(sc, 0, OTG_PHY_CFG, OTG_PHY_ROUTE_OTG);
+	}
 
 	if (phyno > 0) {
 		/* Enable passby */
