@@ -122,20 +122,6 @@ __FBSDID("$FreeBSD$");
 #define	 EMAC_CLK_SRC_EXT_RGMII	(1 << 0)
 #define	 EMAC_CLK_SRC_RGMII	(2 << 0)
 
-/* syscon EMAC clock register */
-#define	EMAC_CLK_RMII_EN	(1 << 13)
-#define	EMAC_CLK_ETXDC		(0x7 << 10)
-#define	EMAC_CLK_ETXDC_SHIFT	10
-#define	EMAC_CLK_ERXDC		(0x1f << 5)
-#define	EMAC_CLK_ERXDC_SHIFT	5
-#define	EMAC_CLK_PIT		(0x1 << 2)
-#define	 EMAC_CLK_PIT_MII	(0 << 2)
-#define	 EMAC_CLK_PIT_RGMII	(1 << 2)
-#define	EMAC_CLK_SRC		(0x3 << 0)
-#define	 EMAC_CLK_SRC_MII	(0 << 0)
-#define	 EMAC_CLK_SRC_EXT_RGMII	(1 << 0)
-#define	 EMAC_CLK_SRC_RGMII	(2 << 0)
-
 /* Burst length of RX and TX DMA transfers */
 static int awg_burst_len = BURST_LEN_DEFAULT;
 TUNABLE_INT("hw.awg.burst_len", &awg_burst_len);
