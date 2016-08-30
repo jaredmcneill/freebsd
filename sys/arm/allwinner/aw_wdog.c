@@ -55,7 +55,7 @@ __FBSDID("$FreeBSD$");
 #define	A10_WDOG_CTRL		0x00
 #define	A31_WDOG_CTRL		0x10
 #define	 WDOG_CTRL_RESTART	(1 << 0)
-#define	 WDOG_CTRL_KEY		(0xa57 << 1)
+#define	 A31_WDOG_CTRL_KEY	(0xa57 << 1)
 #define	A10_WDOG_MODE		0x04
 #define	A31_WDOG_MODE		0x18
 #define	 A10_WDOG_MODE_INTVL_SHIFT	3
@@ -94,6 +94,7 @@ struct aw_wdog_softc {
 	struct resource *	res;
 	struct mtx		mtx;
 	uint8_t			wdog_ctrl;
+	uint32_t		wdog_ctrl_key;
 	uint8_t			wdog_mode;
 	uint8_t			wdog_mode_intvl_shift;
 	uint8_t			wdog_mode_en;
@@ -163,6 +164,7 @@ aw_wdog_attach(device_t dev)
 		break;
 	case A31_WATCHDOG:
 		sc->wdog_ctrl = A31_WDOG_CTRL;
+		sc->wdog_ctrl_key = A31_WDOG_CTRL_KEY;
 		sc->wdog_mode = A31_WDOG_MODE;
 		sc->wdog_mode_intvl_shift = A31_WDOG_MODE_INTVL_SHIFT;
 		sc->wdog_mode_en = WDOG_MODE_EN;
@@ -205,7 +207,7 @@ aw_wdog_watchdog_fn(void *private, u_int cmd, int *error)
 			  (wd_intervals[i].value << sc->wdog_mode_intvl_shift) |
 			    sc->wdog_mode_en);
 			WRITE(sc, sc->wdog_ctrl,
-			    WDOG_CTRL_RESTART | WDOG_CTRL_KEY);
+			    WDOG_CTRL_RESTART | sc->wdog_ctrl_key);
 			if (sc->wdog_config)
 				WRITE(sc, sc->wdog_config,
 				    sc->wdog_config_value);
@@ -252,7 +254,7 @@ aw_wdog_watchdog_reset()
 		WRITE(aw_wdog_sc, aw_wdog_sc->wdog_config,
 		      aw_wdog_sc->wdog_config_value);
 	WRITE(aw_wdog_sc, aw_wdog_sc->wdog_ctrl,
-	    WDOG_CTRL_RESTART | WDOG_CTRL_KEY);
+	    WDOG_CTRL_RESTART | aw_wdog_sc->wdog_ctrl_key);
 	while(1)
 		;
 
