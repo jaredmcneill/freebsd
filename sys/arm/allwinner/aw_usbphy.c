@@ -85,7 +85,6 @@ struct awusbphy_softc {
 	gpio_pin_t		vbus_det_pin;
 	int			vbus_det_valid;
 	enum awusbphy_type	phy_type;
-	int			num_phys;
 };
 
 static struct resource_spec awusbphy_spec[] = {
