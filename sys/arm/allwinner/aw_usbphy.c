@@ -53,8 +53,8 @@ __FBSDID("$FreeBSD$");
 
 #include "phy_if.h"
 
-#define	USBPHY_NRES	3
 #define	USBPHY_NPHYS	4
+#define	USBPHY_NRES	USBPHY_NPHYS
 
 enum awusbphy_type {
 	AWUSBPHY_TYPE_A10 = 1,
@@ -85,12 +85,14 @@ struct awusbphy_softc {
 	gpio_pin_t		vbus_det_pin;
 	int			vbus_det_valid;
 	enum awusbphy_type	phy_type;
+	int			num_phys;
 };
 
 static struct resource_spec awusbphy_spec[] = {
 	{ SYS_RES_MEMORY,	0,	RF_ACTIVE },
 	{ SYS_RES_MEMORY,	1,	RF_ACTIVE },
-	{ SYS_RES_MEMORY,	2,	RF_ACTIVE },
+	{ SYS_RES_MEMORY,	2,	RF_ACTIVE | RF_OPTIONAL },
+	{ SYS_RES_MEMORY,	3,	RF_ACTIVE | RF_OPTIONAL },
 	{ -1, 0 }
 };
 
