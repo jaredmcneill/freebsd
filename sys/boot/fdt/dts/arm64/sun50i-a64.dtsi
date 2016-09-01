@@ -59,17 +59,6 @@
 			device_type = "cpu";
 			reg = <0>;
 			enable-method = "psci";
-
-			clocks = <&cpu>;
-			clock-latency = <2000000>;
-			operating-points = <
-				/* kHz	  uV */
-				1200000	1300000
-				1008000	1200000
-				816000	1100000
-				648000	1040000
-				408000	1040000
-				>;
 		};
 
 		cpu@1 {

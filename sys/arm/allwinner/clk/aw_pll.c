@@ -562,8 +562,6 @@ a23_pll1_set_freq(struct aw_pll_sc *sc, uint64_t fin, uint64_t *fout,
 {
 	uint32_t val, n, k, m, p;
 
-	printf("%s: fin=%lu fout=%lu\n", __func__, fin, *fout);
-
 	switch (*fout) {
 	case 408000000:
 		n = 16;
@@ -589,7 +587,6 @@ a23_pll1_set_freq(struct aw_pll_sc *sc, uint64_t fin, uint64_t *fout,
 		m = p = 0;
 		break;
 	default:
-		printf("%s: frequency %lu not supported\n", __func__, *fout);
 		return (EINVAL);
 	}
 

@@ -27,6 +27,21 @@
  */
 
 / {
+	cpus {
+		cpu@0 {
+			clocks = <&cpu>;
+			clock-latency = <2000000>;
+			operating-points = <
+				/* kHz    uV */
+				1200000 1300000
+				1008000 1200000
+				816000  1100000
+				648000  1040000
+				408000  1040000
+				>;
+		};
+	};
+
 	clocks {
 		pll_hsic: clk@01c20044 {
 			#clock-cells = <0>;
