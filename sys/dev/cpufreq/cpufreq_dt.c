@@ -69,7 +69,10 @@ cpufreq_dt_identify(driver_t *driver, device_t parent)
 	phandle_t node;
 
 	node = ofw_bus_get_node(parent);
-	if (!OF_hasprop(node, "operating-points"))
+
+	if (!OF_hasprop(node, "operating-points") ||
+	    !OF_hasprop(node, "clocks") ||
+	    !OF_hasprop(node, "cpu-supply"))
 		return;
 
 	if (device_find_child(parent, "cpufreq_dt", -1) != NULL)
@@ -86,7 +89,9 @@ cpufreq_dt_probe(device_t dev)
 
 	node = ofw_bus_get_node(device_get_parent(dev));
 
-	if (!OF_hasprop(node, "operating-points"))
+	if (!OF_hasprop(node, "operating-points") ||
+	    !OF_hasprop(node, "clocks") ||
+	    !OF_hasprop(node, "cpu-supply"))
 		return (ENXIO);
 
 	device_set_desc(dev, "Generic cpufreq driver");
