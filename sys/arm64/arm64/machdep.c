@@ -416,8 +416,9 @@ cpu_flush_dcache(void *ptr, size_t len)
 int
 cpu_est_clockrate(int cpu_id, uint64_t *rate)
 {
+	/* ARM64TODO TBD */
 
-	panic("ARM64TODO: cpu_est_clockrate");
+	return (ENXIO);
 }
 
 void

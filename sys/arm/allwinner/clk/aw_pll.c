@@ -557,6 +557,58 @@ a13_pll2_set_freq(struct aw_pll_sc *sc, uint64_t fin, uint64_t *fout,
 }
 
 static int
+a23_pll1_set_freq(struct aw_pll_sc *sc, uint64_t fin, uint64_t *fout,
+    int flags)
+{
+	uint32_t val, n, k, m, p;
+
+	printf("%s: fin=%lu fout=%lu\n", __func__, fin, *fout);
+
+	switch (*fout) {
+	case 408000000:
+		n = 16;
+		k = m = p = 0;
+		break;
+	case 648000000:
+		n = 26;
+		k = m = p = 0;
+		break;
+	case 816000000:
+		n = 16;
+		k = 1;
+		m = p = 0;
+		break;
+	case 1008000000:
+		n = 20;
+		k = 1;
+		m = p = 0;
+		break;
+	case 1200000000:
+		n = 24;
+		k = 1;
+		m = p = 0;
+		break;
+	default:
+		printf("%s: frequency %lu not supported\n", __func__, *fout);
+		return (EINVAL);
+	}
+
+	DEVICE_LOCK(sc);
+	PLL_READ(sc, &val);
+	val &= ~(A23_PLL1_FACTOR_N|A23_PLL1_FACTOR_K|A23_PLL1_FACTOR_M|
+		 A23_PLL1_FACTOR_P);
+	val |= (n << A23_PLL1_FACTOR_N_SHIFT);
+	val |= (k << A23_PLL1_FACTOR_K_SHIFT);
+	val |= (m << A23_PLL1_FACTOR_M_SHIFT);
+	val |= (p << A23_PLL1_FACTOR_P_SHIFT);
+	PLL_WRITE(sc, val);
+	DEVICE_UNLOCK(sc);
+
+	return (0);
+	
+}
+
+static int
 a23_pll1_recalc(struct aw_pll_sc *sc, uint64_t *freq)
 {
 	uint32_t val, m, n, k, p;
@@ -719,7 +771,7 @@ static struct aw_pll_funcs aw_pll_func[] = {
 	PLL(AWPLL_A10_PLL5, a10_pll5_recalc, NULL, NULL),
 	PLL(AWPLL_A10_PLL6, a10_pll6_recalc, a10_pll6_set_freq, a10_pll6_init),
 	PLL(AWPLL_A13_PLL2, a13_pll2_recalc, a13_pll2_set_freq, NULL),
-	PLL(AWPLL_A23_PLL1, a23_pll1_recalc, NULL, NULL),
+	PLL(AWPLL_A23_PLL1, a23_pll1_recalc, a23_pll1_set_freq, NULL),
 	PLL(AWPLL_A31_PLL1, a31_pll1_recalc, NULL, NULL),
 	PLL(AWPLL_A31_PLL6, a31_pll6_recalc, NULL, a31_pll6_init),
 	PLL(AWPLL_A80_PLL4, a80_pll4_recalc, NULL, NULL),

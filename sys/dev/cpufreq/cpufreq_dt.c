@@ -63,16 +63,30 @@ struct cpufreq_dt_softc {
 	int clk_latency;
 };
 
+static void
+cpufreq_dt_identify(driver_t *driver, device_t parent)
+{
+	phandle_t node;
+
+	node = ofw_bus_get_node(parent);
+	if (!OF_hasprop(node, "operating-points"))
+		return;
+
+	if (device_find_child(parent, "cpufreq_dt", -1) != NULL)
+		return;
+
+	if (BUS_ADD_CHILD(parent, 0, "cpufreq_dt", -1) == NULL)
+		device_printf(parent, "add cpufreq_dt child failed\n");
+}
+
 static int
 cpufreq_dt_probe(device_t dev)
 {
-	phandle_t cpu0;
+	phandle_t node;
 
-	if (ofw_bus_get_node(dev) != OF_finddevice("/cpus"))
-		return (ENXIO);
+	node = ofw_bus_get_node(device_get_parent(dev));
 
-	cpu0 = OF_finddevice("/cpus/cpu@0");
-	if (cpu0 == -1 || !OF_hasprop(cpu0, "operating-points"))
+	if (!OF_hasprop(node, "operating-points"))
 		return (ENXIO);
 
 	device_set_desc(dev, "Generic cpufreq driver");
@@ -84,25 +98,27 @@ cpufreq_dt_attach(device_t dev)
 {
 	struct cpufreq_dt_softc *sc;
 	uint32_t *opp, lat;
-	phandle_t cpu0;
+	phandle_t node;
 	ssize_t n;
 
 	sc = device_get_softc(dev);
-	cpu0 = OF_finddevice("/cpus/cpu@0");
+	node = ofw_bus_get_node(device_get_parent(dev));
 
-	if (regulator_get_by_ofw_property(dev, cpu0,
+	if (regulator_get_by_ofw_property(dev, node,
 	    "cpu-supply", &sc->reg) != 0) {
-		device_printf(dev, "no regulator for cpu\n");
+		device_printf(dev, "no regulator for %s\n",
+		    ofw_bus_get_name(device_get_parent(dev)));
 		return (ENXIO);
 	}
 
-	if (clk_get_by_ofw_index(dev, cpu0, 0, &sc->clk) != 0) {
-		device_printf(dev, "no clock for cpu\n");
+	if (clk_get_by_ofw_index(dev, node, 0, &sc->clk) != 0) {
+		device_printf(dev, "no clock for %s\n",
+		    ofw_bus_get_name(device_get_parent(dev)));
 		regulator_release(sc->reg);
 		return (ENXIO);
 	}
 
-	sc->nopp = OF_getencprop_alloc(cpu0, "operating-points",
+	sc->nopp = OF_getencprop_alloc(node, "operating-points",
 	    sizeof(*sc->opp), (void **)&opp);
 	if (sc->nopp == -1)
 		return (ENXIO);
@@ -119,7 +135,7 @@ cpufreq_dt_attach(device_t dev)
 	}
 	free(opp, M_OFWPROP);
 
-	if (OF_getencprop(cpu0, "clock-latency", &lat, sizeof(lat)) == -1)
+	if (OF_getencprop(node, "clock-latency", &lat, sizeof(lat)) == -1)
 		sc->clk_latency = CPUFREQ_VAL_UNKNOWN;
 	else
 		sc->clk_latency = (int)lat;
@@ -259,6 +275,7 @@ cpufreq_dt_settings(device_t dev, struct cf_setting *sets, int *count)
 
 static device_method_t cpufreq_dt_methods[] = {
 	/* Device interface */
+	DEVMETHOD(device_identify,	cpufreq_dt_identify),
 	DEVMETHOD(device_probe,		cpufreq_dt_probe),
 	DEVMETHOD(device_attach,	cpufreq_dt_attach),
 
@@ -279,5 +296,5 @@ static driver_t cpufreq_dt_driver = {
 
 static devclass_t cpufreq_dt_devclass;
 
-DRIVER_MODULE(cpufreq_dt, simplebus, cpufreq_dt_driver, cpufreq_dt_devclass, 0, 0);
+DRIVER_MODULE(cpufreq_dt, cpu, cpufreq_dt_driver, cpufreq_dt_devclass, 0, 0);
 MODULE_VERSION(cpufreq_dt, 1);
