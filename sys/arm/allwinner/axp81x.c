@@ -300,6 +300,8 @@ axp81x_regnode_set_voltage(struct regnode *regnode, int min_uvolt,
 
 	axp81x_write(sc->base_dev, sc->def->voltage_reg, val);
 
+	*udelay = 0;
+
 	return (0);
 }
 
