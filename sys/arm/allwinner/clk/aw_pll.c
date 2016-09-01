@@ -110,14 +110,14 @@ __FBSDID("$FreeBSD$");
 #define	A13_PLL2_PRE_DIV		(0x1f << 0)
 #define	A13_PLL2_PRE_DIV_SHIFT		0
 
+#define	A23_PLL1_FACTOR_P		(0x3 << 16)
+#define	A23_PLL1_FACTOR_P_SHIFT		16
 #define	A23_PLL1_FACTOR_N		(0x1f << 8)
 #define	A23_PLL1_FACTOR_N_SHIFT		8
 #define	A23_PLL1_FACTOR_K		(0x3 << 4)
 #define	A23_PLL1_FACTOR_K_SHIFT		4
 #define	A23_PLL1_FACTOR_M		(0x3 << 0)
 #define	A23_PLL1_FACTOR_M_SHIFT		0
-#define	A23_PLL1_FACTOR_P		(0x3 << 16)
-#define	A23_PLL1_FACTOR_P_SHIFT		16
 
 #define	A31_PLL1_LOCK			(1 << 28)
 #define	A31_PLL1_CPU_SIGMA_DELTA_EN	(1 << 24)
@@ -170,6 +170,24 @@ __FBSDID("$FreeBSD$");
 
 #define	CLKID_A31_PLL6			0
 #define	CLKID_A31_PLL6_X2		1
+
+struct aw_pll_factor {
+	unsigned int		n;
+	unsigned int		k;
+	unsigned int		m;
+	unsigned int		p;
+	uint64_t		freq;
+};
+#define	PLLFACTOR(_n, _k, _m, _p, _freq)	\
+	{ .n = (_n), .k = (_k), .m = (_m), .p = (_p), .freq = (_freq) }
+
+static struct aw_pll_factor aw_a23_pll1_factors[] = {
+	PLLFACTOR(16, 0, 0, 0, 408000000),
+	PLLFACTOR(26, 0, 0, 0, 648000000),
+	PLLFACTOR(16, 1, 0, 0, 816000000),
+	PLLFACTOR(20, 1, 0, 0, 1008000000),
+	PLLFACTOR(24, 1, 0, 0, 1200000000),
+};
 
 enum aw_pll_type {
 	AWPLL_A10_PLL1 = 1,
@@ -560,44 +578,28 @@ static int
 a23_pll1_set_freq(struct aw_pll_sc *sc, uint64_t fin, uint64_t *fout,
     int flags)
 {
-	uint32_t val, n, k, m, p;
+	struct aw_pll_factor *f;
+	uint32_t val;
+	int n;
 
-	switch (*fout) {
-	case 408000000:
-		n = 16;
-		k = m = p = 0;
-		break;
-	case 648000000:
-		n = 26;
-		k = m = p = 0;
-		break;
-	case 816000000:
-		n = 16;
-		k = 1;
-		m = p = 0;
-		break;
-	case 1008000000:
-		n = 20;
-		k = 1;
-		m = p = 0;
-		break;
-	case 1200000000:
-		n = 24;
-		k = 1;
-		m = p = 0;
-		break;
-	default:
-		return (EINVAL);
+	f = NULL;
+	for (n = 0; n < nitems(aw_a23_pll1_factors); n++) {
+		if (aw_a23_pll1_factors[n].freq == *fout) {
+			f = &aw_a23_pll1_factors[n];
+			break;
+		}
 	}
+	if (f == NULL)
+		return (EINVAL);
 
 	DEVICE_LOCK(sc);
 	PLL_READ(sc, &val);
 	val &= ~(A23_PLL1_FACTOR_N|A23_PLL1_FACTOR_K|A23_PLL1_FACTOR_M|
 		 A23_PLL1_FACTOR_P);
-	val |= (n << A23_PLL1_FACTOR_N_SHIFT);
-	val |= (k << A23_PLL1_FACTOR_K_SHIFT);
-	val |= (m << A23_PLL1_FACTOR_M_SHIFT);
-	val |= (p << A23_PLL1_FACTOR_P_SHIFT);
+	val |= (f->n << A23_PLL1_FACTOR_N_SHIFT);
+	val |= (f->k << A23_PLL1_FACTOR_K_SHIFT);
+	val |= (f->m << A23_PLL1_FACTOR_M_SHIFT);
+	val |= (f->p << A23_PLL1_FACTOR_P_SHIFT);
 	PLL_WRITE(sc, val);
 	DEVICE_UNLOCK(sc);
 
