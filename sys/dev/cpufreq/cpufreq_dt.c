@@ -40,6 +40,8 @@ __FBSDID("$FreeBSD$");
 #include <sys/kernel.h>
 #include <sys/module.h>
 #include <sys/cpu.h>
+#include <sys/cpuset.h>
+#include <sys/smp.h>
 
 #include <dev/ofw/ofw_bus.h>
 #include <dev/ofw/ofw_bus_subr.h>
@@ -61,93 +63,27 @@ struct cpufreq_dt_softc {
 	struct cpufreq_dt_opp *opp;
 	ssize_t nopp;
 	int clk_latency;
+
+	cpuset_t cpus;
 };
 
 static void
-cpufreq_dt_identify(driver_t *driver, device_t parent)
+cpufreq_dt_notify(device_t dev, uint64_t freq)
 {
-	phandle_t node;
-
-	node = ofw_bus_get_node(parent);
-
-	if (!OF_hasprop(node, "operating-points") ||
-	    !OF_hasprop(node, "clocks") ||
-	    !OF_hasprop(node, "cpu-supply"))
-		return;
-
-	if (device_find_child(parent, "cpufreq_dt", -1) != NULL)
-		return;
-
-	if (BUS_ADD_CHILD(parent, 0, "cpufreq_dt", -1) == NULL)
-		device_printf(parent, "add cpufreq_dt child failed\n");
-}
-
-static int
-cpufreq_dt_probe(device_t dev)
-{
-	phandle_t node;
-
-	node = ofw_bus_get_node(device_get_parent(dev));
-
-	if (!OF_hasprop(node, "operating-points") ||
-	    !OF_hasprop(node, "clocks") ||
-	    !OF_hasprop(node, "cpu-supply"))
-		return (ENXIO);
-
-	device_set_desc(dev, "Generic cpufreq driver");
-	return (BUS_PROBE_GENERIC);
-}
-
-static int
-cpufreq_dt_attach(device_t dev)
-{
+#ifdef __aarch64__
 	struct cpufreq_dt_softc *sc;
-	uint32_t *opp, lat;
-	phandle_t node;
-	ssize_t n;
+	struct pcpu *pc;
+	int cpu;
 
 	sc = device_get_softc(dev);
-	node = ofw_bus_get_node(device_get_parent(dev));
 
-	if (regulator_get_by_ofw_property(dev, node,
-	    "cpu-supply", &sc->reg) != 0) {
-		device_printf(dev, "no regulator for %s\n",
-		    ofw_bus_get_name(device_get_parent(dev)));
-		return (ENXIO);
+	CPU_FOREACH(cpu) {
+		if (CPU_ISSET(cpu, &sc->cpus)) {
+			pc = pcpu_find(cpu);
+			pc->pc_clock = freq;
+		}
 	}
-
-	if (clk_get_by_ofw_index(dev, node, 0, &sc->clk) != 0) {
-		device_printf(dev, "no clock for %s\n",
-		    ofw_bus_get_name(device_get_parent(dev)));
-		regulator_release(sc->reg);
-		return (ENXIO);
-	}
-
-	sc->nopp = OF_getencprop_alloc(node, "operating-points",
-	    sizeof(*sc->opp), (void **)&opp);
-	if (sc->nopp == -1)
-		return (ENXIO);
-	sc->opp = malloc(sizeof(*sc->opp) * sc->nopp, M_DEVBUF, M_WAITOK);
-	for (n = 0; n < sc->nopp; n++) {
-		sc->opp[n].freq_khz = opp[n * 2 + 0];
-		sc->opp[n].voltage_uv = opp[n * 2 + 1];
-
-		if (bootverbose)
-			device_printf(dev, "%u.%03u MHz, %u uV\n",
-			    sc->opp[n].freq_khz / 1000,
-			    sc->opp[n].freq_khz % 1000,
-			    sc->opp[n].voltage_uv);
-	}
-	free(opp, M_OFWPROP);
-
-	if (OF_getencprop(node, "clock-latency", &lat, sizeof(lat)) == -1)
-		sc->clk_latency = CPUFREQ_VAL_UNKNOWN;
-	else
-		sc->clk_latency = (int)lat;
-
-	cpufreq_register(dev);
-
-	return (0);
+#endif
 }
 
 static const struct cpufreq_dt_opp *
@@ -248,6 +184,9 @@ cpufreq_dt_set(device_t dev, const struct cf_setting *set)
 		}
 	}
 
+	if (clk_get_freq(sc->clk, &freq) == 0)
+		cpufreq_dt_notify(dev, freq);
+
 	return (0);
 }
 
@@ -285,6 +224,114 @@ cpufreq_dt_settings(device_t dev, struct cf_setting *sets, int *count)
 
 	return (0);
 }
+
+static void
+cpufreq_dt_identify(driver_t *driver, device_t parent)
+{
+	phandle_t node;
+
+	/* Properties must be listed under node /cpus/cpu@0 */
+	node = ofw_bus_get_node(parent);
+
+	/* The cpu@0 node must have the following properties */
+	if (!OF_hasprop(node, "operating-points") ||
+	    !OF_hasprop(node, "clocks") ||
+	    !OF_hasprop(node, "cpu-supply"))
+		return;
+
+	if (device_find_child(parent, "cpufreq_dt", -1) != NULL)
+		return;
+
+	if (BUS_ADD_CHILD(parent, 0, "cpufreq_dt", -1) == NULL)
+		device_printf(parent, "add cpufreq_dt child failed\n");
+}
+
+static int
+cpufreq_dt_probe(device_t dev)
+{
+	phandle_t node;
+
+	node = ofw_bus_get_node(device_get_parent(dev));
+
+	if (!OF_hasprop(node, "operating-points") ||
+	    !OF_hasprop(node, "clocks") ||
+	    !OF_hasprop(node, "cpu-supply"))
+		return (ENXIO);
+
+	device_set_desc(dev, "Generic cpufreq driver");
+	return (BUS_PROBE_GENERIC);
+}
+
+static int
+cpufreq_dt_attach(device_t dev)
+{
+	struct cpufreq_dt_softc *sc;
+	uint32_t *opp, lat;
+	phandle_t node, cnode;
+	uint64_t freq;
+	ssize_t n;
+	int cpu;
+
+	sc = device_get_softc(dev);
+	node = ofw_bus_get_node(device_get_parent(dev));
+
+	if (regulator_get_by_ofw_property(dev, node,
+	    "cpu-supply", &sc->reg) != 0) {
+		device_printf(dev, "no regulator for %s\n",
+		    ofw_bus_get_name(device_get_parent(dev)));
+		return (ENXIO);
+	}
+
+	if (clk_get_by_ofw_index(dev, node, 0, &sc->clk) != 0) {
+		device_printf(dev, "no clock for %s\n",
+		    ofw_bus_get_name(device_get_parent(dev)));
+		regulator_release(sc->reg);
+		return (ENXIO);
+	}
+
+	sc->nopp = OF_getencprop_alloc(node, "operating-points",
+	    sizeof(*sc->opp), (void **)&opp);
+	if (sc->nopp == -1)
+		return (ENXIO);
+	sc->opp = malloc(sizeof(*sc->opp) * sc->nopp, M_DEVBUF, M_WAITOK);
+	for (n = 0; n < sc->nopp; n++) {
+		sc->opp[n].freq_khz = opp[n * 2 + 0];
+		sc->opp[n].voltage_uv = opp[n * 2 + 1];
+
+		if (bootverbose)
+			device_printf(dev, "%u.%03u MHz, %u uV\n",
+			    sc->opp[n].freq_khz / 1000,
+			    sc->opp[n].freq_khz % 1000,
+			    sc->opp[n].voltage_uv);
+	}
+	free(opp, M_OFWPROP);
+
+	if (OF_getencprop(node, "clock-latency", &lat, sizeof(lat)) == -1)
+		sc->clk_latency = CPUFREQ_VAL_UNKNOWN;
+	else
+		sc->clk_latency = (int)lat;
+
+	/*
+	 * Find all CPUs that share the same voltage and CPU frequency
+	 * controls. Start with the current node and move forward until
+	 * the end is reached or a peer has an "operating-points" property.
+	 */
+	CPU_ZERO(&sc->cpus);
+	cpu = device_get_unit(device_get_parent(dev));
+	for (cnode = node; cnode > 0; cnode = OF_peer(cnode), cpu++) {
+		if (cnode != node && OF_hasprop(cnode, "operating-points"))
+			break;
+		CPU_SET(cpu, &sc->cpus);
+	}
+
+	if (clk_get_freq(sc->clk, &freq) == 0)
+		cpufreq_dt_notify(dev, freq);
+
+	cpufreq_register(dev);
+
+	return (0);
+}
+
 
 static device_method_t cpufreq_dt_methods[] = {
 	/* Device interface */
