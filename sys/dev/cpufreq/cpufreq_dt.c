@@ -230,14 +230,22 @@ cpufreq_dt_set(device_t dev, const struct cf_setting *set)
 	}
 
 	error = clk_set_freq(sc->clk, (uint64_t)opp->freq_khz * 1000, 0);
-	if (error != 0)
+	if (error != 0) {
+		/* Restore previous voltage (best effort) */
+		(void)regulator_set_voltage(sc->reg, copp->voltage_uv,
+		    copp->voltage_uv);
 		return (ENXIO);
+	}
 
 	if (copp->voltage_uv > opp->voltage_uv) {
 		error = regulator_set_voltage(sc->reg, opp->voltage_uv,
 		    opp->voltage_uv);
-		if (error != 0)
+		if (error != 0) {
+			/* Restore previous CPU frequency (best effort) */
+			(void)clk_set_freq(sc->clk,
+			    (uint64_t)copp->freq_khz * 1000, 0);
 			return (ENXIO);
+		}
 	}
 
 	return (0);
