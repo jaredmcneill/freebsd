@@ -39,6 +39,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/rman.h>
 #include <sys/kernel.h>
 #include <sys/sysctl.h>
+#include <sys/reboot.h>
 #include <sys/module.h>
 #include <machine/bus.h>
 
@@ -60,6 +61,15 @@ __FBSDID("$FreeBSD$");
 #define	 SENSOR0_EN		(1 << 0)
 #define	THS_INTC		0x44
 #define	THS_INTS		0x48
+#define	 THS2_DATA_IRQ_STS	(1 << 10)
+#define	 THS1_DATA_IRQ_STS	(1 << 9)
+#define	 THS0_DATA_IRQ_STS	(1 << 8)
+#define	 SHUT_INT2_STS		(1 << 6)
+#define	 SHUT_INT1_STS		(1 << 5)
+#define	 SHUT_INT0_STS		(1 << 4)
+#define	 ALARM_INT2_STS		(1 << 2)
+#define	 ALARM_INT1_STS		(1 << 1)
+#define	 ALARM_INT0_STS		(1 << 0)
 #define	THS_FILTER		0x70
 #define	THS_CALIB0		0x74
 #define	THS_CALIB1		0x78
@@ -70,22 +80,21 @@ __FBSDID("$FreeBSD$");
 
 #define	A83T_ADC_ACQUIRE_TIME	0x17
 #define	A83T_FILTER		0x4
-#define	A83T_INTC		0x1070
+#define	A83T_INTC		0x1000
 #define	A83T_TEMP_BASE		2719000
-#define	A83T_TEMP_MUL		1000
 #define	A83T_TEMP_DIV		14186
 #define	A83T_CLK_RATE		24000000
 
 #define	A64_ADC_ACQUIRE_TIME	0x190
 #define	A64_FILTER		0x6
-#define A64_INTC		0x18070
+#define A64_INTC		0x18000
 #define	A64_TEMP_BASE		2170000
-#define	A64_TEMP_MUL		1000
 #define	A64_TEMP_DIV		8560
 #define	A64_CLK_RATE		4000000
 
 #define	TEMP_C_TO_K		273
 #define	SENSOR_ENABLE_ALL	(SENSOR0_EN|SENSOR1_EN|SENSOR2_EN)
+#define	SHUT_INT_ALL		(SHUT_INT0_STS|SHUT_INT1_STS|SHUT_INT2_STS)
 
 #define	MAX_SENSORS	3
 
@@ -102,7 +111,6 @@ struct aw_thermal_config {
 	uint32_t			filter;
 	uint32_t			intc;
 	uint32_t			temp_base;
-	uint32_t			temp_mul;
 	uint32_t			temp_div;
 };
 
@@ -127,7 +135,6 @@ static const struct aw_thermal_config a83t_config = {
 	.filter = A83T_FILTER,
 	.intc = A83T_INTC,
 	.temp_base = A83T_TEMP_BASE,
-	.temp_mul = A83T_TEMP_MUL,
 	.temp_div = A83T_TEMP_DIV,
 };
 
@@ -152,7 +159,6 @@ static const struct aw_thermal_config a64_config = {
 	.filter = A64_FILTER,
 	.intc = A64_INTC,
 	.temp_base = A64_TEMP_BASE,
-	.temp_mul = A64_TEMP_MUL,
 	.temp_div = A64_TEMP_DIV,
 };
 
@@ -204,12 +210,18 @@ aw_thermal_init(struct aw_thermal_softc *sc)
 
 	/* Enable interrupts */
 	WR4(sc, THS_INTS, RD4(sc, THS_INTS));
-	WR4(sc, THS_INTC, sc->conf->intc);
+	WR4(sc, THS_INTC, sc->conf->intc | SHUT_INT_ALL);
 
 	/* Enable sensors */
 	WR4(sc, THS_CTRL2, RD4(sc, THS_CTRL2) | SENSOR_ENABLE_ALL);
 
 	return (0);
+}
+
+static int
+aw_thermal_reg_to_temp(struct aw_thermal_softc *sc, uint32_t val)
+{
+	return ((sc->conf->temp_base - val * 1000) / sc->conf->temp_div);
 }
 
 static int
@@ -219,8 +231,7 @@ aw_thermal_gettemp(struct aw_thermal_softc *sc, int sensor)
 
 	val = RD4(sc, THS_DATA0 + (sensor * 4));
 
-	return (((sc->conf->temp_base - val * sc->conf->temp_mul) /
-	    sc->conf->temp_div) + TEMP_C_TO_K);
+	return (aw_thermal_reg_to_temp(sc, val) + TEMP_C_TO_K);
 }
 
 static int
@@ -250,7 +261,11 @@ aw_thermal_intr(void *arg)
 	ints = RD4(sc, THS_INTS);
 	WR4(sc, THS_INTS, ints);
 
-	device_printf(dev, "THS_INTS = %08x\n", ints);
+	if ((ints & SHUT_INT_ALL) != 0) {
+		device_printf(dev,
+		   "WARNING - current temperature exceeds safe limits\n");
+		shutdown_nice(RB_POWEROFF);
+	}
 }
 
 static int
