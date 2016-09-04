@@ -29,6 +29,33 @@
 #include "sun8i-h3-orangepi-plus.dts"
 
 / {
+	cpus {
+		cpu@0 {
+			cpu-supply = <&vdd_cpu>;
+
+			clocks = <&cpu>;
+			clock-latency = <2000000>;	/* XXX ??? */
+			operating-points = <
+				/* kHz	  uV */
+				1296000	1340000
+				1200000	1320000
+				1008000	1200000
+				816000	1100000
+				648000	1040000
+				>;
+		};
+	};
+
+	clocks {
+		ths_clk: clk@1c20074 {
+			#clock-cells = <0>;
+			compatible = "allwinner,sun8i-h3-ths-clk";
+			reg = <0x01c20074 0x4>;
+			clocks = <&osc24M>;
+			clock-output-names = "ths";
+		};
+	};
+
 	soc {
 		emac: ethernet@1c30000 {
 			compatible = "allwinner,sun8i-h3-emac";
@@ -85,11 +112,26 @@
 			#address-cells = <1>;
 			#size-cells = <0>;
 		};
+
+		sid: eeprom@1c14000 {
+			compatible = "allwinner,sun8i-a83t-sid";
+			reg = <0x01c14000 0x400>;
+		};
+
+		rtp: rtp@1c25000 {
+			compatible = "allwinner,sun8i-h3-ts";
+			reg = <0x01c25000 0x400>;
+			interrupts = <GIC_SPI 31 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&bus_gates 72>, <&ths_clk>;
+			clock-names = "ahb", "ths";
+			resets = <&apb1_rst 8>;
+			#thermal-sensor-cells = <0>;
+		};
 	};
 };
 
-&mmc0_pins_a {
-	allwinner,pull = <SUN4I_PINCTRL_PULL_UP>;
+&pll1 {
+	compatible = "allwinner,sun8i-h3-pll1-clk";
 };
 
 &pio {

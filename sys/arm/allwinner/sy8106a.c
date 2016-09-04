@@ -105,21 +105,20 @@ static int
 sy8106a_write(device_t dev, uint8_t reg, uint8_t val)
 {
 	struct sy8106a_softc *sc;
-	struct iic_msg msg[2];
+	struct iic_msg msg;
+	uint8_t buffer[2];
 
 	sc = device_get_softc(dev);
 
-	msg[0].slave = sc->addr;
-	msg[0].flags = IIC_M_WR;
-	msg[0].len = 1;
-	msg[0].buf = &reg;
+	buffer[0] = reg;
+	buffer[1] = val;
 
-	msg[1].slave = sc->addr;
-	msg[1].flags = IIC_M_WR;
-	msg[1].len = 1;
-	msg[1].buf = &val;
+	msg.slave = sc->addr;
+	msg.flags = IIC_M_WR;
+	msg.len = 2;
+	msg.buf = buffer;
 
-	return (iicbus_transfer(dev, msg, 2));
+	return (iicbus_transfer(dev, &msg, 1));
 }
 
 static int
@@ -154,18 +153,18 @@ sy8106a_regnode_set_voltage(struct regnode *regnode, int min_uvolt,
 {
 	struct sy8106a_reg_sc *sc;
 	int cur_uvolt;
-	uint8_t val;
+	uint8_t val, oval;
 
 	sc = regnode_get_softc(regnode);
 
 	/* Get current voltage */
-	sy8106a_read(sc->base_dev, VOUT1_SEL, &val, 1);
-	cur_uvolt = (val & SEL_VOLTAGE_MASK) * SEL_VOLTAGE_STEP +
+	sy8106a_read(sc->base_dev, VOUT1_SEL, &oval, 1);
+	cur_uvolt = (oval & SEL_VOLTAGE_MASK) * SEL_VOLTAGE_STEP +
 	    SEL_VOLTAGE_BASE;
 
 	/* Set new voltage */
-	val = (min_uvolt - SEL_VOLTAGE_BASE) * SEL_VOLTAGE_STEP;
-	sy8106a_write(sc->base_dev, VOUT1_SEL, val | SEL_GO);
+	val = SEL_GO | ((min_uvolt - SEL_VOLTAGE_BASE) / SEL_VOLTAGE_STEP);
+	sy8106a_write(sc->base_dev, VOUT1_SEL, val);
 
 	/* Time to delay is based on the number of voltage steps */
 	*udelay = sc->param->ramp_delay *
@@ -263,17 +262,11 @@ sy8106a_attach(device_t dev)
 {
 	struct sy8106a_softc *sc;
 	phandle_t node;
-	uint8_t val;
 
 	sc = device_get_softc(dev);
 	node = ofw_bus_get_node(dev);
 
 	sc->addr = iicbus_get_addr(dev);
-
-	if (bootverbose) {
-		sy8106a_read(dev, VOUT1_SEL, &val, 1);
-		device_printf(dev, "VOUT1_SEL = %02x\n", val);
-	}
 
 	sc->reg = sy8106a_reg_attach(dev, node);
 	if (sc->reg == NULL) {

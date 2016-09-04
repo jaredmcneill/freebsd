@@ -38,6 +38,9 @@ options 	PLATFORM
 options 	PLATFORM_SMP
 options 	MULTIDELAY
 
+# CPU frequency scaling
+device		cpufreq
+
 # NFS root from boopt/dhcp
 #options 	BOOTP
 #options 	BOOTP_NFSROOT
