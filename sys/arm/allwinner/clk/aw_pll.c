@@ -110,7 +110,6 @@ __FBSDID("$FreeBSD$");
 #define	A13_PLL2_PRE_DIV		(0x1f << 0)
 #define	A13_PLL2_PRE_DIV_SHIFT		0
 
-#define	A23_PLL1_LOCK			(1 << 28)
 #define	A23_PLL1_FACTOR_P		(0x3 << 16)
 #define	A23_PLL1_FACTOR_P_SHIFT		16
 #define	A23_PLL1_FACTOR_N		(0x1f << 8)
