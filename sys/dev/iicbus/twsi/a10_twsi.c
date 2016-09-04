@@ -104,15 +104,12 @@ a10_twsi_attach(device_t dev)
 	}
 
 	/* Activate clock */
-	error = clk_get_by_ofw_index(dev, 0, 0, &clk);
-	if (error != 0) {
-		device_printf(dev, "could not find clock\n");
-		return (error);
-	}
-	error = clk_enable(clk);
-	if (error != 0) {
-		device_printf(dev, "could not enable clock\n");
-		return (error);
+	if (clk_get_by_ofw_index(dev, 0, 0, &clk) == 0) {
+		error = clk_enable(clk);
+		if (error != 0) {
+			device_printf(dev, "could not enable clock\n");
+			return (error);
+		}
 	}
 
 	sc->reg_data = TWI_DATA;
