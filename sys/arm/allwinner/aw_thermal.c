@@ -88,7 +88,7 @@ __FBSDID("$FreeBSD$");
 
 #define	A64_ADC_ACQUIRE_TIME	0x190
 #define	A64_FILTER		0x6
-#define A64_INTC		0x18000
+#define	A64_INTC		0x18000
 #define	A64_TEMP_BASE		2170000
 #define	A64_TEMP_MUL		1000
 #define	A64_TEMP_DIV		8560
