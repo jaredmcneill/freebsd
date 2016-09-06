@@ -256,7 +256,8 @@ aw_thermal_init(struct aw_thermal_softc *sc)
 static int
 aw_thermal_reg_to_temp(struct aw_thermal_softc *sc, uint32_t val)
 {
-	return ((sc->conf->temp_base - (val * sc->conf->temp_mul)) / sc->conf->temp_div);
+	return ((sc->conf->temp_base - (val * sc->conf->temp_mul)) /
+	    sc->conf->temp_div);
 }
 
 static int
