@@ -1,5 +1,5 @@
 #-
-# Copyright (c) 2015 Landon Fuller <landon@landonf.org>
+# Copyright (c) 2015-2016 Landon Fuller <landonf@FreeBSD.org>
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -29,6 +29,7 @@
 #include <sys/rman.h>
 
 #include <dev/bhnd/bhnd_types.h>
+#include <dev/bhnd/bhnd_erom_types.h>
 
 INTERFACE bhnd_bus;
 
@@ -49,18 +50,17 @@ CODE {
 	#include <sys/systm.h>
 
 	#include <dev/bhnd/bhndvar.h>
-	
+
+	static bhnd_erom_class_t *
+	bhnd_bus_null_get_erom_class(driver_t *driver)
+	{
+		return (NULL);
+	}
+
 	static struct bhnd_chipid *
 	bhnd_bus_null_get_chipid(device_t dev, device_t child)
 	{
 		panic("bhnd_bus_get_chipid unimplemented");
-	}
-
-	static int
-	bhnd_bus_null_get_core_table(device_t dev, device_t child,
-	    struct bhnd_core_info **cores, u_int *num_cores)
-	{
-		panic("bhnd_bus_get_core_table unimplemented");
 	}
 
 	static bhnd_attach_type
@@ -96,7 +96,26 @@ CODE {
 	{
 		panic("bhnd_bus_read_boardinfo unimplemented");
 	}
-	
+
+	static int
+	bhnd_bus_null_get_intr_count(device_t dev, device_t child)
+	{
+		panic("bhnd_bus_get_intr_count unimplemented");
+	}
+
+	static int
+	bhnd_bus_null_assign_intr(device_t dev, device_t child, int rid)
+	{
+		panic("bhnd_bus_assign_intr unimplemented");
+	}
+
+	static int
+	bhnd_bus_null_get_core_ivec(device_t dev, device_t child, u_int intr,
+	    uint32_t *ivec)
+	{
+		panic("bhnd_bus_get_core_ivec unimplemented");
+	}
+
 	static void
 	bhnd_bus_null_child_added(device_t dev, device_t child)
 	{
@@ -159,7 +178,7 @@ CODE {
 	static device_t
 	bhnd_bus_null_find_hostb_device(device_t dev)
 	{
-		panic("bhnd_bus_find_hostb_device unimplemented");
+		return (NULL);
 	}
 
 	static bool
@@ -204,6 +223,15 @@ CODE {
 	}
 
 }
+
+/**
+ * Return the bhnd(4) bus driver's device enumeration parser class.
+ *
+ * @param driver	The bhnd bus driver instance.
+ */
+STATICMETHOD bhnd_erom_class_t * get_erom_class {
+	driver_t			*driver;
+} DEFAULT bhnd_bus_null_get_erom_class;
 
 /**
  * Return the active host bridge core for the bhnd bus, if any.
@@ -278,32 +306,6 @@ METHOD const struct bhnd_chipid * get_chipid {
 } DEFAULT bhnd_bus_null_get_chipid;
 
 /**
- * Get a list of all cores discoverable on @p dev.
- *
- * Enumerates all cores discoverable on @p dev, returning the list in
- * @p cores and the count in @p num_cores.
- * 
- * The memory allocated for the list should be freed using
- * `free(*cores, M_BHND)`. @p cores and @p num_cores are not changed
- * when an error is returned.
- * 
- * @param	dev		The bhnd bus device.
- * @param	child		The requesting bhnd bus child.
- * @param[out]	cores		The table of core descriptors.
- * @param[out]	num_cores	The number of core descriptors in @p cores.
- * 
- * @retval 0		success
- * @retval non-zero	if an error occurs enumerating @p dev, a regular UNIX
- *			error code should be returned.
- */
-METHOD int get_core_table {
-	device_t			 dev;
-	device_t			 child;
-	struct bhnd_core_info		**cores;
-	u_int				*num_cores;
-} DEFAULT bhnd_bus_null_get_core_table;
-
-/**
  * Return the BHND attachment type of the parent bus.
  *
  * @param dev The device whose child is being examined.
@@ -365,6 +367,78 @@ METHOD void free_devinfo {
 	device_t dev;
 	struct bhnd_devinfo *dinfo;
 };
+
+
+/**
+ * Return the number of interrupts to be assigned to @p child via
+ * BHND_BUS_ASSIGN_INTR().
+ * 
+ * @param dev The bhnd bus parent of @p child.
+ * @param child The bhnd device for which a count should be returned.
+ *
+ * @retval 0		If no interrupts should be assigned.
+ * @retval non-zero	The count of interrupt resource IDs to be
+ *			assigned, starting at rid 0.
+ */
+METHOD int get_intr_count {
+	device_t dev;
+	device_t child;
+} DEFAULT bhnd_bus_null_get_intr_count;
+
+/**
+ * Assign an interrupt to @p child via bus_set_resource().
+ *
+ * The default bus implementation of this method should assign backplane
+ * interrupt values to @p child.
+ *
+ * Bridge-attached bus implementations may instead override standard
+ * interconnect IRQ assignment, providing IRQs inherited from the parent bus.
+ *
+ * TODO: Once we can depend on INTRNG, investigate replacing this with a
+ * bridge-level interrupt controller.
+ * 
+ * @param dev The bhnd bus parent of @p child.
+ * @param child The bhnd device to which an interrupt should be assigned.
+ * @param rid The interrupt resource ID to be assigned.
+ *
+ * @retval 0		If an interrupt was assigned.
+ * @retval non-zero	If assigning an interrupt otherwise fails, a regular
+ *			unix error code will be returned.
+ */
+METHOD int assign_intr {
+	device_t dev;
+	device_t child;
+	int rid;
+} DEFAULT bhnd_bus_null_assign_intr;
+
+/**
+ * Return the backplane interrupt vector corresponding to @p child's given
+ * @p intr number.
+ * 
+ * @param dev The bhnd bus parent of @p child.
+ * @param child The bhnd device for which the assigned interrupt vector should
+ * be queried.
+ * @param intr The interrupt number being queried. This is equivalent to the
+ * bus resource ID for the interrupt.
+ * @param[out] ivec On success, the assigned hardware interrupt vector be
+ * written to this pointer.
+ *
+ * On bcma(4) devices, this returns the OOB bus line assigned to the
+ * interrupt.
+ *
+ * On siba(4) devices, this returns the target OCP slave flag number assigned
+ * to the interrupt.
+ *
+ * @retval 0		success
+ * @retval ENXIO	If @p intr exceeds the number of interrupts available
+ *			to @p child.
+ */
+METHOD int get_core_ivec {
+	device_t dev;
+	device_t child;
+	u_int intr;
+	uint32_t *ivec;
+} DEFAULT bhnd_bus_null_get_core_ivec;
 
 /**
  * Notify a bhnd bus that a child was added.

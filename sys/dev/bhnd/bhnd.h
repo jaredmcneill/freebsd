@@ -39,6 +39,7 @@
 
 #include "bhnd_ids.h"
 #include "bhnd_types.h"
+#include "bhnd_erom_types.h"
 #include "bhnd_debug.h"
 #include "bhnd_bus_if.h"
 #include "bhnd_match.h"
@@ -188,6 +189,12 @@ struct bhnd_resource {
 					 *   is MMIO accessible. */
 };
 
+/** Wrap the active resource @p _r in a bhnd_resource structure */
+#define	BHND_DIRECT_RESOURCE(_r)	((struct bhnd_resource) {	\
+	.res = (_r),							\
+	.direct = true,							\
+})
+
 /**
  * Device quirk table descriptor.
  */
@@ -277,6 +284,13 @@ const struct bhnd_core_info	*bhnd_match_core(
 const struct bhnd_core_info	*bhnd_find_core(
 				     const struct bhnd_core_info *cores,
 				     u_int num_cores, bhnd_devclass_t class);
+
+struct bhnd_core_match		 bhnd_core_get_match_desc(
+				     const struct bhnd_core_info *core);
+
+bool				 bhnd_cores_equal(
+				     const struct bhnd_core_info *lhs,
+				     const struct bhnd_core_info *rhs);
 
 bool				 bhnd_core_matches(
 				     const struct bhnd_core_info *core,
@@ -389,7 +403,16 @@ int				 bhnd_bus_generic_deactivate_resource (device_t dev,
 bhnd_attach_type		 bhnd_bus_generic_get_attach_type(device_t dev,
 				     device_t child);
 
-
+/**
+ * Return the bhnd(4) bus driver's device enumeration parser class
+ *
+ * @param driver A bhnd bus driver instance.
+ */
+static inline bhnd_erom_class_t *
+bhnd_driver_get_erom_class(driver_t *driver)
+{
+	return (BHND_BUS_GET_EROM_CLASS(driver));
+}
 
 /**
  * Return the active host bridge core for the bhnd bus, if any, or NULL if
@@ -427,32 +450,6 @@ static inline const struct bhnd_chipid *
 bhnd_get_chipid(device_t dev) {
 	return (BHND_BUS_GET_CHIPID(device_get_parent(dev), dev));
 };
-
-/**
- * Get a list of all cores discoverable on the bhnd bus.
- *
- * Enumerates all cores discoverable on @p dev, returning the list in
- * @p cores and the count in @p num_cores.
- * 
- * The memory allocated for the list should be freed using
- * `free(*cores, M_BHND)`. @p cores and @p num_cores are not changed
- * when an error is returned.
- * 
- * @param	dev		A bhnd bus child device.
- * @param[out]	cores		The table of core descriptors.
- * @param[out]	num_cores	The number of core descriptors in @p cores.
- * 
- * @retval 0		success
- * @retval non-zero	if an error occurs enumerating @p dev, a regular UNIX
- *			error code should be returned.
- */
-static inline int
-bhnd_get_core_table(device_t dev, struct bhnd_core_info **cores,
-    u_int *num_cores)
-{
-	return (BHND_BUS_GET_CORE_TABLE(device_get_parent(dev), dev, cores,
-	    num_cores));
-}
 
 /**
  * If supported by the chipset, return the clock source for the given clock.
@@ -550,6 +547,45 @@ static inline int
 bhnd_read_board_info(device_t dev, struct bhnd_board_info *info)
 {
 	return (BHND_BUS_READ_BOARD_INFO(device_get_parent(dev), dev, info));
+}
+
+/**
+ * Return the number of interrupts to be assigned to @p child via
+ * BHND_BUS_ASSIGN_INTR().
+ * 
+ * @param dev A bhnd bus child device.
+ */
+static inline int
+bhnd_get_intr_count(device_t dev)
+{
+	return (BHND_BUS_GET_INTR_COUNT(device_get_parent(dev), dev));
+}
+
+/**
+ * Return the backplane interrupt vector corresponding to @p dev's given
+ * @p intr number.
+ * 
+ * @param dev A bhnd bus child device.
+ * @param intr The interrupt number being queried. This is equivalent to the
+ * bus resource ID for the interrupt.
+ * @param[out] ivec On success, the assigned hardware interrupt vector be
+ * written to this pointer.
+ *
+ * On bcma(4) devices, this returns the OOB bus line assigned to the
+ * interrupt.
+ *
+ * On siba(4) devices, this returns the target OCP slave flag number assigned
+ * to the interrupt.
+ *
+ * @retval 0		success
+ * @retval ENXIO	If @p intr exceeds the number of interrupts available
+ *			to @p child.
+ */
+static inline int
+bhnd_get_core_ivec(device_t dev, u_int intr, uint32_t *ivec)
+{
+	return (BHND_BUS_GET_CORE_IVEC(device_get_parent(dev), dev, intr,
+	    ivec));
 }
 
 /**
