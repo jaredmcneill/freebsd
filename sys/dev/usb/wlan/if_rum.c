@@ -165,6 +165,8 @@ static int		rum_cmd_sleepable(struct rum_softc *, const void *,
 			    size_t, uint8_t, CMD_FUNC_PROTO);
 static void		rum_tx_free(struct rum_tx_data *, int);
 static void		rum_setup_tx_list(struct rum_softc *);
+static void		rum_reset_tx_list(struct rum_softc *,
+			    struct ieee80211vap *);
 static void		rum_unsetup_tx_list(struct rum_softc *);
 static void		rum_beacon_miss(struct ieee80211vap *);
 static void		rum_sta_recv_mgmt(struct ieee80211_node *,
@@ -723,12 +725,22 @@ rum_vap_delete(struct ieee80211vap *vap)
 {
 	struct rum_vap *rvp = RUM_VAP(vap);
 	struct ieee80211com *ic = vap->iv_ic;
+	struct rum_softc *sc = ic->ic_softc;
 
-	m_freem(rvp->bcn_mbuf);
+	/* Put vap into INIT state. */
+	ieee80211_new_state(vap, IEEE80211_S_INIT, -1);
+	ieee80211_draintask(ic, &vap->iv_nstate_task);
+
+	RUM_LOCK(sc);
+	/* Cancel any unfinished Tx. */
+	rum_reset_tx_list(sc, vap);
+	RUM_UNLOCK(sc);
+
 	usb_callout_drain(&rvp->ratectl_ch);
 	ieee80211_draintask(ic, &rvp->ratectl_task);
 	ieee80211_ratectl_deinit(vap);
 	ieee80211_vap_detach(vap);
+	m_freem(rvp->bcn_mbuf);
 	free(rvp, M_80211_VAP);
 }
 
@@ -812,6 +824,30 @@ rum_setup_tx_list(struct rum_softc *sc)
 		data->sc = sc;
 		STAILQ_INSERT_TAIL(&sc->tx_free, data, next);
 		sc->tx_nfree++;
+	}
+}
+
+static void
+rum_reset_tx_list(struct rum_softc *sc, struct ieee80211vap *vap)
+{
+	struct rum_tx_data *data, *tmp;
+
+	KASSERT(vap != NULL, ("%s: vap is NULL\n", __func__));
+
+	STAILQ_FOREACH_SAFE(data, &sc->tx_q, next, tmp) {
+		if (data->ni != NULL && data->ni->ni_vap == vap) {
+			ieee80211_free_node(data->ni);
+			data->ni = NULL;
+
+			KASSERT(data->m != NULL, ("%s: m is NULL\n",
+			    __func__));
+			m_freem(data->m);
+			data->m = NULL;
+
+			STAILQ_REMOVE(&sc->tx_q, data, rum_tx_data, next);
+			STAILQ_INSERT_TAIL(&sc->tx_free, data, next);
+			sc->tx_nfree++;
+		}
 	}
 }
 
@@ -1082,7 +1118,6 @@ tr_setup:
 
 				tap->wt_flags = 0;
 				tap->wt_rate = data->rate;
-				rum_get_tsf(sc, &tap->wt_tsf);
 				tap->wt_antenna = sc->tx_ant;
 
 				ieee80211_radiotap_tx(vap, m);
@@ -1631,8 +1666,12 @@ rum_tx_data(struct rum_softc *sc, struct mbuf *m0, struct ieee80211_node *ni)
 		rate = tp->mcastrate;
 	else if (tp->ucastrate != IEEE80211_FIXED_RATE_NONE)
 		rate = tp->ucastrate;
-	else
+	else if (m0->m_flags & M_EAPOL)
+		rate = tp->mgmtrate;
+	else {
+		(void) ieee80211_ratectl_rate(ni, NULL, 0);
 		rate = ni->ni_txrate;
+	}
 
 	if (wh->i_fc[1] & IEEE80211_FC1_PROTECTED) {
 		k = ieee80211_crypto_get_txkey(ni, m0);
@@ -3117,9 +3156,8 @@ rum_ratectl_task(void *arg, int pending)
 	struct rum_vap *rvp = arg;
 	struct ieee80211vap *vap = &rvp->vap;
 	struct rum_softc *sc = vap->iv_ic->ic_softc;
-	struct ieee80211_node *ni;
+	struct ieee80211_ratectl_tx_stats *txs = &sc->sc_txs;
 	int ok[3], fail;
-	int sum, success, retrycnt;
 
 	RUM_LOCK(sc);
 	/* read and clear statistic registers (STA_CSR0 to STA_CSR5) */
@@ -3130,17 +3168,14 @@ rum_ratectl_task(void *arg, int pending)
 	ok[2] = (le32toh(sc->sta[5]) & 0xffff);	/* TX ok w/ multiple retries */
 	fail =  (le32toh(sc->sta[5]) >> 16);	/* TX retry-fail count */
 
-	success = ok[0] + ok[1] + ok[2];
-	sum = success + fail;
+	txs->flags = IEEE80211_RATECTL_TX_STATS_RETRIES;
+	txs->nframes = ok[0] + ok[1] + ok[2] + fail;
+	txs->nsuccess = txs->nframes - fail;
 	/* XXX at least */
-	retrycnt = ok[1] + ok[2] * 2 + fail * (rvp->maxretry + 1);
+	txs->nretries = ok[1] + ok[2] * 2 + fail * (rvp->maxretry + 1);
 
-	if (sum != 0) {
-		ni = ieee80211_ref_node(vap->iv_bss);
-		ieee80211_ratectl_tx_update(vap, ni, &sum, &ok, &retrycnt);
-		(void) ieee80211_ratectl_rate(ni, NULL, 0);
-		ieee80211_free_node(ni);
-	}
+	if (txs->nframes != 0)
+		ieee80211_ratectl_tx_update(vap, txs);
 
 	/* count TX retry-fail as Tx errors */
 	if_inc_counter(vap->iv_ifp, IFCOUNTER_OERRORS, fail);

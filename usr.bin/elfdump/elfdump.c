@@ -36,6 +36,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/endian.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <capsicum_helpers.h>
 #include <err.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -571,12 +572,11 @@ main(int ac, char **av)
 	cap_rights_init(&rights, CAP_MMAP_R);
 	if (cap_rights_limit(fd, &rights) < 0 && errno != ENOSYS)
 		err(1, "unable to limit rights for %s", *av);
-	close(STDIN_FILENO);
-	cap_rights_init(&rights, CAP_WRITE);
-	if (cap_rights_limit(STDOUT_FILENO, &rights) < 0 && errno != ENOSYS)
-		err(1, "unable to limit rights for stdout");
-	if (cap_rights_limit(STDERR_FILENO, &rights) < 0 && errno != ENOSYS)
-		err(1, "unable to limit rights for stderr");
+	cap_rights_init(&rights);
+	if ((cap_rights_limit(STDIN_FILENO, &rights) < 0 && errno != ENOSYS) ||
+	    caph_limit_stdout() < 0 || caph_limit_stderr() < 0) {
+                err(1, "unable to limit rights for stdio");
+	}
 	if (cap_enter() < 0 && errno != ENOSYS)
 		err(1, "unable to enter capability mode");
 	e = mmap(NULL, sb.st_size, PROT_READ, MAP_SHARED, fd, 0);

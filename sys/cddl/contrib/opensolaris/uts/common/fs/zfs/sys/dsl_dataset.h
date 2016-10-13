@@ -39,6 +39,7 @@
 #include <sys/zfs_context.h>
 #include <sys/dsl_deadlist.h>
 #include <sys/refcount.h>
+#include <sys/rrwlock.h>
 #include <zfeature_common.h>
 
 #ifdef	__cplusplus
@@ -84,13 +85,6 @@ struct dsl_pool;
  * in the refcount of the SPA_FEATURES_BOOKMARKS feature.
  */
 #define	DS_FIELD_BOOKMARK_NAMES "com.delphix:bookmarks"
-
-/*
- * This field is present (with value=0) if this dataset may contain large
- * blocks (>128KB).  If it is present, then this dataset
- * is counted in the refcount of the SPA_FEATURE_LARGE_BLOCKS feature.
- */
-#define	DS_FIELD_LARGE_BLOCKS "org.open-zfs:large_blocks"
 
 /*
  * These fields are set on datasets that are in the middle of a resumable
@@ -148,6 +142,7 @@ typedef struct dsl_dataset_phys {
 
 typedef struct dsl_dataset {
 	dmu_buf_user_t ds_dbu;
+	rrwlock_t ds_bp_rwlock; /* Protects ds_phys->ds_bp */
 
 	/* Immutable: */
 	struct dsl_dir *ds_dir;
