@@ -260,13 +260,14 @@ gpioregulator_parse_fdt(struct gpioregulator_softc *sc)
 
 done:
 	if (error != 0) {
-		free(sc->init_def.states, M_DEVBUF);
-		free(sc->init_def.pins, M_DEVBUF);
-
 		for (n = 0; n < sc->init_def.npins; n++) {
 			if (sc->init_def.pins[n] != NULL)
 				gpio_pin_release(sc->init_def.pins[n]);
 		}
+
+		free(sc->init_def.states, M_DEVBUF);
+		free(sc->init_def.pins, M_DEVBUF);
+
 	}
 	OF_prop_free(pstates);
 
