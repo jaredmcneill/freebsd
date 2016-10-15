@@ -194,6 +194,7 @@ struct aw_pll_factor {
 
 static struct aw_pll_factor aw_a23_pll1_factors[] = {
 	PLLFACTOR(16, 0, 0, 0, 408000000),
+	PLLFACTOR(19, 0, 0, 0, 480000000),
 	PLLFACTOR(26, 0, 0, 0, 648000000),
 	PLLFACTOR(16, 1, 0, 0, 816000000),
 	PLLFACTOR(20, 1, 0, 0, 1008000000),
