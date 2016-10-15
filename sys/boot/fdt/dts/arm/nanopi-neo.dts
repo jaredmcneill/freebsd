@@ -31,18 +31,8 @@
 / {
 	cpus {
 		cpu@0 {
-			cpu-supply = <&vdd_cpu>;
-
 			clocks = <&cpu>;
 			clock-latency = <2000000>;	/* XXX ??? */
-			operating-points = <
-				/* kHz	  uV */
-				1296000	1340000
-				1200000	1320000
-				1008000	1200000
-				816000	1100000
-				648000	1040000
-				>;
 		};
 	};
 
@@ -140,18 +130,6 @@
 
 &r_i2c {
 	status = "okay";
-
-	vdd_cpu: regulator@65 {
-		compatible = "silergy,sy8106a";
-		reg = <0x65>;
-
-		regulator-name = "vdd-cpu";
-		regulator-min-microvolt = <1000000>;
-		regulator-max-microvolt = <1400000>;
-		regulator-ramp-delay = <200>;
-		regulator-boot-on;
-		regulator-always-on;
-	};
 };
 
 / {
@@ -171,7 +149,7 @@
 		};
 	};
 
-	cpux_vset: reg_cpux_vset {
+	vdd_cpu: reg_cpux_vset {
 		compatible = "regulator-gpio";
 
 		regulator-name = "cpux-supply";
@@ -202,7 +180,7 @@
 / {
 	cpus {
 		cpu@0 {
-			cpu-supply = <&cpux_vset>;
+			cpu-supply = <&vdd_cpu>;
 			operating-points = <
 				/* kHz    uV */
 				1200000 1300000
