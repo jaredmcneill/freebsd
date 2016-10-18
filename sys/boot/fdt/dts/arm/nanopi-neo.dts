@@ -29,6 +29,110 @@
 #include "sun8i-h3-nanopi-neo.dts"
 
 / {
+	cpus {
+		cpu@0 {
+			clocks = <&cpu>;
+			clock-latency = <2000000>;	/* XXX ??? */
+		};
+	};
+
+	clocks {
+		ths_clk: clk@1c20074 {
+			#clock-cells = <0>;
+			compatible = "allwinner,sun8i-h3-ths-clk";
+			reg = <0x01c20074 0x4>;
+			clocks = <&osc24M>;
+			clock-output-names = "ths";
+		};
+	};
+
+	soc {
+		emac: ethernet@1c30000 {
+			compatible = "allwinner,sun8i-h3-emac";
+			reg = <0x01c30000 0x104>, <0x01c00030 0x4>;
+			reg-names = "emac", "syscon";
+			interrupts = <GIC_SPI 82 IRQ_TYPE_LEVEL_HIGH>;
+			resets = <&ahb_rst 17>;
+			reset-names = "ahb";
+			clocks = <&bus_gates 17>;
+			clock-names = "ahb";
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
+		i2c0: i2c@1c2ac00 {
+			compatible = "allwinner,sun6i-a31-i2c";
+			reg = <0x01c2ac00 0x400>;
+			interrupts = <GIC_SPI 6 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&bus_gates 96>;
+			resets = <&apb2_rst 0>;
+			status = "disabled";
+			#address-cells = <1>;
+			#size-cells = <0>;
+		};
+
+		i2c1: i2c@1c2b000 {
+			compatible = "allwinner,sun6i-a31-i2c";
+			reg = <0x01c2b000 0x400>;
+			interrupts = <GIC_SPI 7 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&bus_gates 97>;
+			resets = <&apb2_rst 1>;
+			status = "disabled";
+			#address-cells = <1>;
+			#size-cells = <0>;
+		};
+
+		i2c2: i2c@1c2b400 {
+			compatible = "allwinner,sun6i-a31-i2c";
+			reg = <0x01c2b400 0x400>;
+			interrupts = <GIC_SPI 8 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&bus_gates 98>;
+			resets = <&apb2_rst 2>;
+			status = "disabled";
+			#address-cells = <1>;
+			#size-cells = <0>;
+		};
+
+		r_i2c: i2c@1f02400 {
+			compatible = "allwinner,sun6i-a31-i2c";
+			reg = <0x01f02400 0x400>;
+			interrupts = <GIC_SPI 44 IRQ_TYPE_LEVEL_HIGH>;
+			status = "disabled";
+			#address-cells = <1>;
+			#size-cells = <0>;
+		};
+
+		sid: eeprom@1c14000 {
+			compatible = "allwinner,sun8i-a83t-sid";
+			reg = <0x01c14000 0x400>;
+		};
+
+		rtp: rtp@1c25000 {
+			compatible = "allwinner,sun8i-h3-ts";
+			reg = <0x01c25000 0x400>;
+			interrupts = <GIC_SPI 31 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&bus_gates 72>, <&ths_clk>;
+			clock-names = "ahb", "ths";
+			resets = <&apb1_rst 8>;
+			#thermal-sensor-cells = <0>;
+		};
+	};
+};
+
+&pll1 {
+	compatible = "allwinner,sun8i-h3-pll1-clk";
+};
+
+/*
+ * Board-specific stuff here
+ */
+
+&r_i2c {
+	status = "okay";
+};
+
+/ {
 	soc {
 		emac: ethernet@1c30000 {
 			compatible = "allwinner,sun8i-h3-emac";
@@ -44,6 +148,21 @@
 			status = "disabled";
 		};
 	};
+
+	vdd_cpu: reg_cpux_vset {
+		compatible = "regulator-gpio";
+
+		regulator-name = "cpux-supply";
+		regulator-min-microvolt = <1100000>;
+		regulator-max-microvolt = <1300000>;
+		regulator-boot-on;
+
+		gpios = <&r_pio 0 6 GPIO_ACTIVE_HIGH>;
+		states = <1300000 0x1
+			  1100000 0x0>;
+
+		enable-active-high;
+	};
 };
 
 &emac {
@@ -57,3 +176,19 @@
                 reg = <1>;
         };
 };
+
+/ {
+	cpus {
+		cpu@0 {
+			cpu-supply = <&vdd_cpu>;
+			operating-points = <
+				/* kHz    uV */
+				1200000 1300000
+				1008000 1300000
+				816000  1100000
+				480000  1100000
+				>;
+		};
+	};
+};
+
