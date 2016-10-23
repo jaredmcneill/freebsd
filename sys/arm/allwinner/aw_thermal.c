@@ -121,6 +121,12 @@ __FBSDID("$FreeBSD$");
 #define	MAX_SENSORS	3
 #define	MAX_CF_LEVELS	64
 
+#define	THROTTLE_ENABLE_DEFAULT	1
+
+/* Enable thermal throttling */
+static int aw_thermal_throttle_enable = THROTTLE_ENABLE_DEFAULT;
+TUNABLE_INT("hw.aw_thermal.throttle_enable", &aw_thermal_throttle_enable);
+
 struct aw_thermal_sensor {
 	const char		*name;
 	const char		*desc;
@@ -364,9 +370,6 @@ aw_thermal_throttle(struct aw_thermal_softc *sc, int enable)
 	if (enable == sc->throttle)
 		return;
 
-	device_printf(sc->dev, "%sabling CPU throttling\n",
-	    enable ? "en" : "dis");
-
 	if (enable != 0) {
 		/* Set the lowest available frequency */
 		cf_dev = devclass_get_device(devclass_find("cpufreq"), 0);
@@ -394,7 +397,8 @@ aw_thermal_cf_pre_change(void *arg, const struct cf_level *level, int *status)
 
 	sc = arg;
 
-	if (sc->throttle == 0 || level->total_set.freq == sc->min_freq)
+	if (aw_thermal_throttle_enable == 0 || sc->throttle == 0 ||
+	    level->total_set.freq == sc->min_freq)
 		return;
 
 	temp_cur = aw_thermal_gettemp(sc, 0);
@@ -426,8 +430,6 @@ aw_thermal_intr(void *arg)
 	}
 
 	if ((ints & ALARM_INT_ALL) != 0) {
-		device_printf(dev,
-		    "WARNING - current temperature too hot! throttling\n");
 		aw_thermal_throttle(sc, 1);
 	}
 }
@@ -455,7 +457,6 @@ aw_thermal_attach(device_t dev)
 	void *ih;
 
 	sc = device_get_softc(dev);
-	sc->dev = dev;
 	clk_ahb = clk_ths = NULL;
 	rst = NULL;
 	ih = NULL;
@@ -512,14 +513,17 @@ aw_thermal_attach(device_t dev)
 		    sc, i, aw_thermal_sysctl, "IK0",
 		    sc->conf->sensors[i].desc);
 
+	if (bootverbose)
+		for (i = 0; i < sc->conf->nsensors; i++) {
+			device_printf(dev,
+			    "#%d: alarm %dC hyst %dC shut %dC\n", i,
+			    aw_thermal_getalarm(sc, i) - TEMP_C_TO_K,
+			    aw_thermal_gethyst(sc, i) - TEMP_C_TO_K,
+			    aw_thermal_getshut(sc, i) - TEMP_C_TO_K);
+		}
+
 	sc->cf_pre_tag = EVENTHANDLER_REGISTER(cpufreq_pre_change,
 	    aw_thermal_cf_pre_change, sc, EVENTHANDLER_PRI_FIRST);
-
-	for (i = 0; i < sc->conf->nsensors; i++)
-		device_printf(dev, "#%d: alarm %dC hyst %dC shut %dC\n", i,
-		    aw_thermal_getalarm(sc, i) - TEMP_C_TO_K,
-		    aw_thermal_gethyst(sc, i) - TEMP_C_TO_K,
-		    aw_thermal_getshut(sc, i) - TEMP_C_TO_K);
 
 	return (0);
 
