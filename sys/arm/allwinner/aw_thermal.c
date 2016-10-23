@@ -429,9 +429,8 @@ aw_thermal_intr(void *arg)
 		shutdown_nice(RB_POWEROFF);
 	}
 
-	if ((ints & ALARM_INT_ALL) != 0) {
+	if ((ints & ALARM_INT_ALL) != 0)
 		aw_thermal_throttle(sc, 1);
-	}
 }
 
 static int
