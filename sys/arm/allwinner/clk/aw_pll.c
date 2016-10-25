@@ -168,9 +168,6 @@ __FBSDID("$FreeBSD$");
 #define	A83T_PLLCPUX_POSTDIV_M		(0x3 << 0)
 #define	A83T_PLLCPUX_POSTDIV_M_SHIFT	0
 
-#define	H3_PLL_CPUX_PAT_CTRL_REG	0x01c20280
-#define	H3_PLL_CPUX_PAT_CTRL_INIT	0xd1303333
-
 #define	CLKID_A10_PLL3_1X		0
 #define	CLKID_A10_PLL3_2X		1
 
@@ -708,20 +705,6 @@ a23_pll1_recalc(struct aw_pll_sc *sc, uint64_t *freq)
 }
 
 static int
-h3_pll1_init(device_t dev, bus_addr_t reg, struct clknode_init_def *def)
-{
-	/*
-	 * Initialize PLL_CPUX pattern control settings
-	 */
-	CLKDEV_DEVICE_LOCK(dev);
-	CLKDEV_WRITE_4(dev, H3_PLL_CPUX_PAT_CTRL_REG,
-	    H3_PLL_CPUX_PAT_CTRL_INIT);
-	CLKDEV_DEVICE_UNLOCK(dev);
-
-	return (0);
-}
-
-static int
 h3_pll1_set_freq(struct aw_pll_sc *sc, uint64_t fin, uint64_t *fout,
     int flags)
 {
@@ -977,7 +960,7 @@ static struct aw_pll_funcs aw_pll_func[] = {
 	PLL(AWPLL_A80_PLL4, a80_pll4_recalc, NULL, NULL),
 	PLL(AWPLL_A83T_PLLCPUX, a83t_pllcpux_recalc, a83t_pllcpux_set_freq, NULL),
 	PLL(AWPLL_A64_PLLHSIC, a64_pllhsic_recalc, NULL, a64_pllhsic_init),
-	PLL(AWPLL_H3_PLL1, a23_pll1_recalc, h3_pll1_set_freq, h3_pll1_init),
+	PLL(AWPLL_H3_PLL1, a23_pll1_recalc, h3_pll1_set_freq, NULL),
 };
 
 static struct ofw_compat_data compat_data[] = {
