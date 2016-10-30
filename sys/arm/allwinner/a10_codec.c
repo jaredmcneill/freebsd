@@ -27,7 +27,7 @@
  */
 
 /*
- * Allwinner A10/A20 Audio Codec
+ * Allwinner A10/A20 and H3 Audio Codec
  */
 
 #include <sys/cdefs.h>
@@ -51,18 +51,44 @@ __FBSDID("$FreeBSD$");
 #include <dev/ofw/ofw_bus_subr.h>
 
 #include <dev/extres/clk/clk.h>
+#include <dev/extres/hwreset/hwreset.h>
 
 #include "sunxi_dma_if.h"
 #include "mixer_if.h"
 #include "gpio_if.h"
 
+struct a10codec_info;
+
+struct a10codec_config {
+	/* mixer class */
+	struct kobj_class *mixer_class;
+
+	/* toggle DAC/ADC mute */
+	void		(*mute)(struct a10codec_info *, int, int);
+
+	/* DRQ types */
+	u_int		drqtype_codec;
+	u_int		drqtype_sdram;
+
+	/* register map */
+	bus_size_t	DPC,
+			DAC_FIFOC,
+			DAC_FIFOS,
+			DAC_TXDATA,
+			ADC_FIFOC,
+			ADC_FIFOS,
+			ADC_RXDATA,
+			DAC_CNT,
+			ADC_CNT;
+};
+
 #define	TX_TRIG_LEVEL	0xf
 #define	RX_TRIG_LEVEL	0x7
 #define	DRQ_CLR_CNT	0x3
 
-#define	AC_DAC_DPC	0x00
+#define	AC_DAC_DPC(_sc)		((_sc)->cfg->DPC)	
 #define	 DAC_DPC_EN_DA			0x80000000
-#define	AC_DAC_FIFOC	0x04
+#define	AC_DAC_FIFOC(_sc)	((_sc)->cfg->DAC_FIFOC)
 #define	 DAC_FIFOC_FS_SHIFT		29
 #define	 DAC_FIFOC_FS_MASK		(7U << DAC_FIFOC_FS_SHIFT)
 #define	  DAC_FS_48KHZ			0
@@ -86,17 +112,9 @@ __FBSDID("$FreeBSD$");
 #define	 DAC_FIFOC_TX_BITS		(1U << 5)
 #define	 DAC_FIFOC_DRQ_EN		(1U << 4)
 #define	 DAC_FIFOC_FIFO_FLUSH		(1U << 0)
-#define	AC_DAC_FIFOS	0x08
-#define	AC_DAC_TXDATA	0x0c
-#define	AC_DAC_ACTL	0x10
-#define	 DAC_ACTL_DACAREN		(1U << 31)
-#define	 DAC_ACTL_DACALEN		(1U << 30)
-#define	 DAC_ACTL_MIXEN			(1U << 29)
-#define	 DAC_ACTL_DACPAS		(1U << 8)
-#define	 DAC_ACTL_PAMUTE		(1U << 6)
-#define	 DAC_ACTL_PAVOL_SHIFT		0
-#define	 DAC_ACTL_PAVOL_MASK		(0x3f << DAC_ACTL_PAVOL_SHIFT)
-#define	AC_ADC_FIFOC	0x1c
+#define	AC_DAC_FIFOS(_sc)	((_sc)->cfg->DAC_FIFOS)
+#define	AC_DAC_TXDATA(_sc)	((_sc)->cfg->DAC_TXDATA)
+#define	AC_ADC_FIFOC(_sc)	((_sc)->cfg->ADC_FIFOC)
 #define	 ADC_FIFOC_FS_SHIFT		29
 #define	 ADC_FIFOC_FS_MASK		(7U << ADC_FIFOC_FS_SHIFT)
 #define	  ADC_FS_48KHZ		0
@@ -108,8 +126,20 @@ __FBSDID("$FreeBSD$");
 #define	 ADC_FIFOC_RX_BITS		(1U << 6)
 #define	 ADC_FIFOC_DRQ_EN		(1U << 4)
 #define	 ADC_FIFOC_FIFO_FLUSH		(1U << 1)
-#define	AC_ADC_FIFOS	0x20
-#define	AC_ADC_RXDATA	0x24
+#define	AC_ADC_FIFOS(_sc)	((_sc)->cfg->ADC_FIFOS)
+#define	AC_ADC_RXDATA(_sc)	((_sc)->cfg->ADC_RXDATA)
+#define	AC_DAC_CNT(_sc)		((_sc)->cfg->DAC_CNT)
+#define	AC_ADC_CNT(_sc)		((_sc)->cfg->ADC_CNT)
+
+/* A10/A20 mixer */
+#define	AC_DAC_ACTL	0x10
+#define	 DAC_ACTL_DACAREN		(1U << 31)
+#define	 DAC_ACTL_DACALEN		(1U << 30)
+#define	 DAC_ACTL_MIXEN			(1U << 29)
+#define	 DAC_ACTL_DACPAS		(1U << 8)
+#define	 DAC_ACTL_PAMUTE		(1U << 6)
+#define	 DAC_ACTL_PAVOL_SHIFT		0
+#define	 DAC_ACTL_PAVOL_MASK		(0x3f << DAC_ACTL_PAVOL_SHIFT)
 #define	AC_ADC_ACTL	0x28
 #define	 ADC_ACTL_ADCREN		(1U << 31)
 #define	 ADC_ACTL_ADCLEN		(1U << 30)
@@ -133,8 +163,6 @@ __FBSDID("$FreeBSD$");
 #define	 ADC_ACTL_LNPREG_MASK		(7U << ADC_ACTL_LNPREG_SHIFT)
 #define	 ADC_ACTL_PA_EN			(1U << 4)
 #define	 ADC_ACTL_DDE			(1U << 3)
-#define	AC_DAC_CNT	0x30
-#define	AC_ADC_CNT	0x34
 
 static uint32_t a10codec_fmt[] = {
 	SND_FORMAT(AFMT_S16_LE, 1, 0),
@@ -168,14 +196,13 @@ struct a10codec_chinfo {
 
 struct a10codec_info {
 	device_t		dev;
-	struct resource		*res[2];
+	struct resource		*res[3];
 	struct mtx		*lock;
 	bus_dma_tag_t		dmat;
 	unsigned		dmasize;
 	void			*ih;
 
-	unsigned		drqtype_codec;
-	unsigned		drqtype_sdram;
+	struct a10codec_config	*cfg;
 
 	struct a10codec_chinfo	play;
 	struct a10codec_chinfo	rec;
@@ -183,6 +210,7 @@ struct a10codec_info {
 
 static struct resource_spec a10codec_spec[] = {
 	{ SYS_RES_MEMORY,	0,	RF_ACTIVE },
+	{ SYS_RES_MEMORY,	1,	RF_ACTIVE | RF_OPTIONAL },
 	{ SYS_RES_IRQ,		0,	RF_ACTIVE },
 	{ -1, 0 }
 };
@@ -191,11 +219,11 @@ static struct resource_spec a10codec_spec[] = {
 #define	CODEC_WRITE(sc, reg, val)	bus_write_4((sc)->res[0], (reg), (val))
 
 /*
- * Mixer interface
+ * A10/A20 mixer interface
  */
 
 static int
-a10codec_mixer_init(struct snd_mixer *m)
+a10_mixer_init(struct snd_mixer *m)
 {
 	struct a10codec_info *sc = mix_getdevinfo(m);
 	pcell_t prop[4];
@@ -233,11 +261,11 @@ a10codec_mixer_init(struct snd_mixer *m)
 	return (0);
 }
 
-static const struct a10codec_mixer {
+static const struct a10_mixer {
 	unsigned reg;
 	unsigned mask;
 	unsigned shift;
-} a10codec_mixers[SOUND_MIXER_NRDEVICES] = {
+} a10_mixers[SOUND_MIXER_NRDEVICES] = {
 	[SOUND_MIXER_VOLUME]	= { AC_DAC_ACTL, DAC_ACTL_PAVOL_MASK,
 				    DAC_ACTL_PAVOL_SHIFT },
 	[SOUND_MIXER_LINE]	= { AC_ADC_ACTL, ADC_ACTL_LNPREG_MASK,
@@ -247,27 +275,27 @@ static const struct a10codec_mixer {
 }; 
 
 static int
-a10codec_mixer_set(struct snd_mixer *m, unsigned dev, unsigned left,
+a10_mixer_set(struct snd_mixer *m, unsigned dev, unsigned left,
     unsigned right)
 {
 	struct a10codec_info *sc = mix_getdevinfo(m);
 	uint32_t val;
 	unsigned nvol, max;
 
-	max = a10codec_mixers[dev].mask >> a10codec_mixers[dev].shift;
+	max = a10_mixers[dev].mask >> a10_mixers[dev].shift;
 	nvol = (left * max) / 100;
 
-	val = CODEC_READ(sc, a10codec_mixers[dev].reg);
-	val &= ~a10codec_mixers[dev].mask;
-	val |= (nvol << a10codec_mixers[dev].shift);
-	CODEC_WRITE(sc, a10codec_mixers[dev].reg, val);
+	val = CODEC_READ(sc, a10_mixers[dev].reg);
+	val &= ~a10_mixers[dev].mask;
+	val |= (nvol << a10_mixers[dev].shift);
+	CODEC_WRITE(sc, a10_mixers[dev].reg, val);
 
 	left = right = (left * 100) / max;
 	return (left | (right << 8));
 }
 
 static uint32_t
-a10codec_mixer_setrecsrc(struct snd_mixer *m, uint32_t src)
+a10_mixer_setrecsrc(struct snd_mixer *m, uint32_t src)
 {
 	struct a10codec_info *sc = mix_getdevinfo(m);
 	uint32_t val;
@@ -305,13 +333,106 @@ a10codec_mixer_setrecsrc(struct snd_mixer *m, uint32_t src)
 	}
 }
 
-static kobj_method_t a10codec_mixer_methods[] = {
-	KOBJMETHOD(mixer_init,		a10codec_mixer_init),
-	KOBJMETHOD(mixer_set,		a10codec_mixer_set),
-	KOBJMETHOD(mixer_setrecsrc,	a10codec_mixer_setrecsrc),
+static void
+a10_mute(struct a10codec_info *sc, int mute, int dir)
+{
+	uint32_t val;
+
+	if (dir == PCMDIR_PLAY) {
+		val = CODEC_READ(sc, AC_DAC_ACTL);
+		if (mute) {
+			/* Disable DAC analog l/r channels and output mixer */
+			val &= ~DAC_ACTL_DACAREN;
+			val &= ~DAC_ACTL_DACALEN;
+			val &= ~DAC_ACTL_DACPAS;
+		} else {
+			/* Enable DAC analog l/r channels and output mixer */
+			val |= DAC_ACTL_DACAREN;
+			val |= DAC_ACTL_DACALEN;
+			val |= DAC_ACTL_DACPAS;
+		}
+		CODEC_WRITE(sc, AC_DAC_ACTL, val);
+	} else {
+		val = CODEC_READ(sc, AC_ADC_ACTL);
+		if (mute) {
+			/* Disable ADC analog l/r channels, MIC1 preamp,
+			 * and VMIC pin voltage
+			 */
+			val &= ~ADC_ACTL_ADCREN;
+			val &= ~ADC_ACTL_ADCLEN;
+			val &= ~ADC_ACTL_PREG1EN;
+			val &= ~ADC_ACTL_VMICEN;
+		} else {
+			/* Enable ADC analog l/r channels, MIC1 preamp,
+			 * and VMIC pin voltage
+			 */
+			val |= ADC_ACTL_ADCREN;
+			val |= ADC_ACTL_ADCLEN;
+			val |= ADC_ACTL_PREG1EN;
+			val |= ADC_ACTL_VMICEN;
+		}
+		CODEC_WRITE(sc, AC_ADC_ACTL, val);
+	}
+}
+
+static kobj_method_t a10_mixer_methods[] = {
+	KOBJMETHOD(mixer_init,		a10_mixer_init),
+	KOBJMETHOD(mixer_set,		a10_mixer_set),
+	KOBJMETHOD(mixer_setrecsrc,	a10_mixer_setrecsrc),
 	KOBJMETHOD_END
 };
-MIXER_DECLARE(a10codec_mixer);
+MIXER_DECLARE(a10_mixer);
+
+
+/*
+ * H3 mixer interface
+ */
+
+static int
+h3_mixer_init(struct snd_mixer *m)
+{
+	//struct a10codec_info *sc = mix_getdevinfo(m);
+
+	mix_setdevs(m, SOUND_MASK_VOLUME | SOUND_MASK_LINE | SOUND_MASK_RECLEV);
+	mix_setrecdevs(m, SOUND_MASK_LINE | SOUND_MASK_LINE1 | SOUND_MASK_MIC);
+
+	return (0);
+}
+
+static int
+h3_mixer_set(struct snd_mixer *m, unsigned dev, unsigned left,
+    unsigned right)
+{
+	//struct a10codec_info *sc = mix_getdevinfo(m);
+	unsigned nvol, max;
+
+	max = 100;
+	nvol = (left * max) / 100;
+
+	left = right = (left * 100) / max;
+	return (left | (right << 8));
+}
+
+static uint32_t
+h3_mixer_setrecsrc(struct snd_mixer *m, uint32_t src)
+{
+	//struct a10codec_info *sc = mix_getdevinfo(m);
+
+	return (0);
+}
+
+static void
+h3_mute(struct a10codec_info *sc, int mute, int dir)
+{
+}
+
+static kobj_method_t h3_mixer_methods[] = {
+	KOBJMETHOD(mixer_init,		h3_mixer_init),
+	KOBJMETHOD(mixer_set,		h3_mixer_set),
+	KOBJMETHOD(mixer_setrecsrc,	h3_mixer_setrecsrc),
+	KOBJMETHOD_END
+};
+MIXER_DECLARE(h3_mixer);
 
 
 /*
@@ -364,12 +485,12 @@ a10codec_dmaconfig(struct a10codec_chinfo *ch)
 
 	if (ch->dir == PCMDIR_PLAY) {
 		conf.dst_noincr = true;
-		conf.src_drqtype = sc->drqtype_sdram;
-		conf.dst_drqtype = sc->drqtype_codec;
+		conf.src_drqtype = sc->cfg->drqtype_sdram;
+		conf.dst_drqtype = sc->cfg->drqtype_codec;
 	} else {
 		conf.src_noincr = true;
-		conf.src_drqtype = sc->drqtype_codec;
-		conf.dst_drqtype = sc->drqtype_sdram;
+		conf.src_drqtype = sc->cfg->drqtype_codec;
+		conf.dst_drqtype = sc->cfg->drqtype_sdram;
 	}
 
 	SUNXI_DMA_SET_CONFIG(ch->dmac, ch->dmachan, &conf);
@@ -428,23 +549,20 @@ a10codec_start(struct a10codec_chinfo *ch)
 
 	if (ch->dir == PCMDIR_PLAY) {
 		/* Flush DAC FIFO */
-		CODEC_WRITE(sc, AC_DAC_FIFOC, DAC_FIFOC_FIFO_FLUSH);
+		CODEC_WRITE(sc, AC_DAC_FIFOC(sc), DAC_FIFOC_FIFO_FLUSH);
 
 		/* Clear DAC FIFO status */
-		CODEC_WRITE(sc, AC_DAC_FIFOS, CODEC_READ(sc, AC_DAC_FIFOS));
+		CODEC_WRITE(sc, AC_DAC_FIFOS(sc),
+		    CODEC_READ(sc, AC_DAC_FIFOS(sc)));
 
-		/* Enable DAC analog left/right channels and output mixer */
-		val = CODEC_READ(sc, AC_DAC_ACTL);
-		val |= DAC_ACTL_DACAREN;
-		val |= DAC_ACTL_DACALEN;
-		val |= DAC_ACTL_DACPAS;
-		CODEC_WRITE(sc, AC_DAC_ACTL, val);
+		/* Unmute output */
+		sc->cfg->mute(sc, 0, ch->dir);
 
 		/* Configure DAC DMA channel */
 		a10codec_dmaconfig(ch);
 
 		/* Configure DAC FIFO */
-		CODEC_WRITE(sc, AC_DAC_FIFOC,
+		CODEC_WRITE(sc, AC_DAC_FIFOC(sc),
 		    (AFMT_CHANNEL(ch->format) == 1 ? DAC_FIFOC_MONO_EN : 0) |
 		    (a10codec_fs(ch) << DAC_FIFOC_FS_SHIFT) |
 		    (FIFO_MODE_16_15_0 << DAC_FIFOC_FIFO_MODE_SHIFT) |
@@ -452,31 +570,25 @@ a10codec_start(struct a10codec_chinfo *ch)
 		    (TX_TRIG_LEVEL << DAC_FIFOC_TX_TRIG_LEVEL_SHIFT));
 
 		/* Enable DAC DRQ */
-		val = CODEC_READ(sc, AC_DAC_FIFOC);
+		val = CODEC_READ(sc, AC_DAC_FIFOC(sc));
 		val |= DAC_FIFOC_DRQ_EN;
-		CODEC_WRITE(sc, AC_DAC_FIFOC, val);
+		CODEC_WRITE(sc, AC_DAC_FIFOC(sc), val);
 	} else {
 		/* Flush ADC FIFO */
-		CODEC_WRITE(sc, AC_ADC_FIFOC, ADC_FIFOC_FIFO_FLUSH);
+		CODEC_WRITE(sc, AC_ADC_FIFOC(sc), ADC_FIFOC_FIFO_FLUSH);
 
 		/* Clear ADC FIFO status */
-		CODEC_WRITE(sc, AC_ADC_FIFOS, CODEC_READ(sc, AC_ADC_FIFOS));
+		CODEC_WRITE(sc, AC_ADC_FIFOS(sc),
+		    CODEC_READ(sc, AC_ADC_FIFOS(sc)));
 
-		/* Enable ADC analog left/right channels, MIC1 preamp,
-		 * and VMIC pin voltage
-		 */
-		val = CODEC_READ(sc, AC_ADC_ACTL);
-		val |= ADC_ACTL_ADCREN;
-		val |= ADC_ACTL_ADCLEN;
-		val |= ADC_ACTL_PREG1EN;
-		val |= ADC_ACTL_VMICEN;
-		CODEC_WRITE(sc, AC_ADC_ACTL, val);
+		/* Unmute input */
+		sc->cfg->mute(sc, 0, ch->dir);
 
 		/* Configure ADC DMA channel */
 		a10codec_dmaconfig(ch);
 
 		/* Configure ADC FIFO */
-		CODEC_WRITE(sc, AC_ADC_FIFOC,
+		CODEC_WRITE(sc, AC_ADC_FIFOC(sc),
 		    ADC_FIFOC_EN_AD |
 		    ADC_FIFOC_RX_FIFO_MODE |
 		    (AFMT_CHANNEL(ch->format) == 1 ? ADC_FIFOC_MONO_EN : 0) |
@@ -484,9 +596,9 @@ a10codec_start(struct a10codec_chinfo *ch)
 		    (RX_TRIG_LEVEL << ADC_FIFOC_RX_TRIG_LEVEL_SHIFT));
 
 		/* Enable ADC DRQ */
-		val = CODEC_READ(sc, AC_ADC_FIFOC);
+		val = CODEC_READ(sc, AC_ADC_FIFOC(sc));
 		val |= ADC_FIFOC_DRQ_EN;
-		CODEC_WRITE(sc, AC_ADC_FIFOC, val);
+		CODEC_WRITE(sc, AC_ADC_FIFOC(sc), val);
 	}
 
 	/* Start DMA transfer */
@@ -497,34 +609,18 @@ static void
 a10codec_stop(struct a10codec_chinfo *ch)
 {
 	struct a10codec_info *sc = ch->parent;
-	uint32_t val;
 
 	/* Disable DMA channel */
 	SUNXI_DMA_HALT(ch->dmac, ch->dmachan);
 
+	sc->cfg->mute(sc, 1, ch->dir);
+
 	if (ch->dir == PCMDIR_PLAY) {
-		/* Disable DAC analog left/right channels and output mixer */
-		val = CODEC_READ(sc, AC_DAC_ACTL);
-		val &= ~DAC_ACTL_DACAREN;
-		val &= ~DAC_ACTL_DACALEN;
-		val &= ~DAC_ACTL_DACPAS;
-		CODEC_WRITE(sc, AC_DAC_ACTL, val);
-
 		/* Disable DAC DRQ */
-		CODEC_WRITE(sc, AC_DAC_FIFOC, 0);
+		CODEC_WRITE(sc, AC_DAC_FIFOC(sc), 0);
 	} else {
-		/* Disable ADC analog left/right channels, MIC1 preamp,
-		 * and VMIC pin voltage
-		 */
-		val = CODEC_READ(sc, AC_ADC_ACTL);
-		val &= ~ADC_ACTL_ADCREN;
-		val &= ~ADC_ACTL_ADCLEN;
-		val &= ~ADC_ACTL_PREG1EN;
-		val &= ~ADC_ACTL_VMICEN;
-		CODEC_WRITE(sc, AC_ADC_ACTL, val);
-
 		/* Disable ADC DRQ */
-		CODEC_WRITE(sc, AC_ADC_FIFOC, 0);
+		CODEC_WRITE(sc, AC_ADC_FIFOC(sc), 0);
 	}
 }
 
@@ -541,7 +637,7 @@ a10codec_chan_init(kobj_t obj, void *devinfo, struct snd_dbuf *b,
 	ch->buffer = b;
 	ch->dir = dir;
 	ch->fifo = rman_get_start(sc->res[0]) +
-	    (dir == PCMDIR_REC ? AC_ADC_RXDATA : AC_DAC_TXDATA);
+	    (dir == PCMDIR_REC ? AC_ADC_RXDATA(sc) : AC_DAC_TXDATA(sc));
 
 	ch->dmac = devclass_get_device(devclass_find("a10dmac"), 0);
 	if (ch->dmac == NULL) {
@@ -720,10 +816,43 @@ CHANNEL_DECLARE(a10codec_chan);
  * Device interface
  */
 
+static const struct a10codec_config a10_config = {
+	.mixer_class	= &a10_mixer_class,
+	.mute		= a10_mute,
+	.drqtype_codec	= 19,
+	.drqtype_sdram	= 22,
+	.DPC		= 0x00,
+	.DAC_FIFOC	= 0x04,
+	.DAC_FIFOS	= 0x08,
+	.DAC_TXDATA	= 0x0c,
+	.ADC_FIFOC	= 0x1c,
+	.ADC_FIFOS	= 0x20,
+	.ADC_RXDATA	= 0x24,
+	.DAC_CNT	= 0x30,
+	.ADC_CNT	= 0x34,
+};
+
+static const struct a10codec_config h3_config = {
+	.mixer_class	= &h3_mixer_class,
+	.mute		= h3_mute,
+	.drqtype_codec	= 15,
+	.drqtype_sdram	= 1,
+	.DPC		= 0x00,
+	.DAC_FIFOC	= 0x04,
+	.DAC_FIFOS	= 0x08,
+	.DAC_TXDATA	= 0x20,
+	.ADC_FIFOC	= 0x10,
+	.ADC_FIFOS	= 0x14,
+	.ADC_RXDATA	= 0x18,
+	.DAC_CNT	= 0x40,
+	.ADC_CNT	= 0x44,
+};
+
 static struct ofw_compat_data compat_data[] = {
-	{"allwinner,sun4i-a10-codec", 1},
-	{"allwinner,sun7i-a20-codec", 1},
-	{NULL, 0},
+	{ "allwinner,sun4i-a10-codec",	(uintptr_t)&a10_config },
+	{ "allwinner,sun7i-a20-codec",	(uintptr_t)&a10_config },
+	{ "allwinner,sun8i-h3-codec",	(uintptr_t)&h3_config },
+	{ NULL, 0 }
 };
 
 static int
@@ -745,26 +874,17 @@ a10codec_attach(device_t dev)
 	struct a10codec_info *sc;
 	char status[SND_STATUSLEN];
 	clk_t clk_apb, clk_codec;
+	hwreset_t rst;
 	uint32_t val;
 	int error;
 
 	sc = malloc(sizeof(*sc), M_DEVBUF, M_WAITOK | M_ZERO);
+	sc->cfg = (void *)ofw_bus_search_compatible(dev, compat_data)->ocd_data;
 	sc->dev = dev;
 	sc->lock = snd_mtxcreate(device_get_nameunit(dev), "a10codec softc");
 
 	if (bus_alloc_resources(dev, a10codec_spec, sc->res)) {
 		device_printf(dev, "cannot allocate resources for device\n");
-		error = ENXIO;
-		goto fail;
-	}
-
-	/* XXX DRQ types should come from FDT, but how? */
-	if (ofw_bus_is_compatible(dev, "allwinner,sun4i-a10-codec") ||
-	    ofw_bus_is_compatible(dev, "allwinner,sun7i-a20-codec")) {
-		sc->drqtype_codec = 19;
-		sc->drqtype_sdram = 22;
-	} else {
-		device_printf(dev, "DRQ types not known for this SoC\n");
 		error = ENXIO;
 		goto fail;
 	}
@@ -824,10 +944,19 @@ a10codec_attach(device_t dev)
 		goto fail;
 	}
 
+	/* De-assert hwreset */
+	if (hwreset_get_by_ofw_name(dev, 0, "codec", &rst) == 0) {
+		error = hwreset_deassert(rst);
+		if (error != 0) {
+			device_printf(dev, "cannot de-assert reset\n");
+			goto fail;
+		}
+	}
+
 	/* Enable DAC */
-	val = CODEC_READ(sc, AC_DAC_DPC);
+	val = CODEC_READ(sc, AC_DAC_DPC(sc));
 	val |= DAC_DPC_EN_DA;
-	CODEC_WRITE(sc, AC_DAC_DPC, val);
+	CODEC_WRITE(sc, AC_DAC_DPC(sc), val);
 
 #ifdef notdef
 	error = snd_setup_intr(dev, sc->irq, INTR_MPSAFE, a10codec_intr, sc,
@@ -838,7 +967,7 @@ a10codec_attach(device_t dev)
 	}
 #endif
 
-	if (mixer_init(dev, &a10codec_mixer_class, sc)) {
+	if (mixer_init(dev, sc->cfg->mixer_class, sc)) {
 		device_printf(dev, "mixer_init failed\n");
 		goto fail;
 	}
