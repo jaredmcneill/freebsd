@@ -630,7 +630,18 @@ a10codec_chan_init(kobj_t obj, void *devinfo, struct snd_dbuf *b,
 {
 	struct a10codec_info *sc = devinfo;
 	struct a10codec_chinfo *ch = dir == PCMDIR_PLAY ? &sc->play : &sc->rec;
-	int error;
+	phandle_t xref;
+	pcell_t *cells;
+	int ncells, error;
+
+	error = ofw_bus_parse_xref_list_alloc(ofw_bus_get_node(sc->dev),
+	    "dmas", "#dma-cells", dir == PCMDIR_PLAY ? 1 : 0,
+	    &xref, &ncells, &cells);
+	if (error != 0) {
+		device_printf(sc->dev, "cannot parse 'dmas' property\n");
+		return (NULL);
+	}
+	OF_prop_free(cells);
 
 	ch->parent = sc;
 	ch->channel = c;
@@ -639,9 +650,10 @@ a10codec_chan_init(kobj_t obj, void *devinfo, struct snd_dbuf *b,
 	ch->fifo = rman_get_start(sc->res[0]) +
 	    (dir == PCMDIR_REC ? AC_ADC_RXDATA(sc) : AC_DAC_TXDATA(sc));
 
-	ch->dmac = devclass_get_device(devclass_find("a10dmac"), 0);
+	ch->dmac = OF_device_from_xref(xref);
 	if (ch->dmac == NULL) {
 		device_printf(sc->dev, "cannot find DMA controller\n");
+		device_printf(sc->dev, "xref = 0x%x\n", (u_int)xref);
 		return (NULL);
 	}
 	ch->dmachan = SUNXI_DMA_ALLOC(ch->dmac, false, a10codec_dmaintr, ch);
@@ -873,7 +885,7 @@ a10codec_attach(device_t dev)
 {
 	struct a10codec_info *sc;
 	char status[SND_STATUSLEN];
-	clk_t clk_apb, clk_codec;
+	clk_t clk_bus, clk_codec;
 	hwreset_t rst;
 	uint32_t val;
 	int error;
@@ -906,21 +918,19 @@ a10codec_attach(device_t dev)
 	}
 
 	/* Get clocks */
-	error = clk_get_by_ofw_name(dev, 0, "apb", &clk_apb);
-	if (error != 0) {
-		device_printf(dev, "cannot find apb clock\n");
+	if (clk_get_by_ofw_name(dev, 0, "apb", &clk_bus) != 0 &&
+	    clk_get_by_ofw_name(dev, 0, "ahb", &clk_bus) != 0) {
+		device_printf(dev, "cannot find bus clock\n");
 		goto fail;
 	}
-	error = clk_get_by_ofw_name(dev, 0, "codec", &clk_codec);
-	if (error != 0) {
+	if (clk_get_by_ofw_name(dev, 0, "codec", &clk_codec) != 0) {
 		device_printf(dev, "cannot find codec clock\n");
 		goto fail;
 	}
 
-	/* Gating APB clock for codec */
-	error = clk_enable(clk_apb);
-	if (error != 0) {
-		device_printf(dev, "cannot enable apb clock\n");
+	/* Gating bus clock for codec */
+	if (clk_enable(clk_bus) != 0) {
+		device_printf(dev, "cannot enable bus clock\n");
 		goto fail;
 	}
 	/* Activate audio codec clock. According to the A10 and A20 user
@@ -945,7 +955,8 @@ a10codec_attach(device_t dev)
 	}
 
 	/* De-assert hwreset */
-	if (hwreset_get_by_ofw_name(dev, 0, "codec", &rst) == 0) {
+	if (hwreset_get_by_ofw_name(dev, 0, "apb", &rst) == 0 ||
+	    hwreset_get_by_ofw_name(dev, 0, "ahb", &rst) == 0) {
 		error = hwreset_deassert(rst);
 		if (error != 0) {
 			device_printf(dev, "cannot de-assert reset\n");
@@ -992,7 +1003,7 @@ fail:
 	snd_mtxfree(sc->lock);
 	free(sc, M_DEVBUF);
 
-	return (error);
+	return (ENXIO);
 }
 
 static device_method_t a10codec_pcm_methods[] = {
