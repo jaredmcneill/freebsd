@@ -393,6 +393,11 @@ MIXER_DECLARE(a10_mixer);
 #define	H3_LINEIN_GCTR		0x05
 #define	 H3_LINEING_SHIFT	4
 #define	 H3_LINEING_MASK	(0x7 << H3_LINEING_SHIFT)
+#define	H3_MIC_GCTR		0x06
+#define	 H3_MIC1_GAIN_SHIFT	4
+#define	 H3_MIC1_GAIN_MASK	(0x7 << H3_MIC1_GAIN_SHIFT)
+#define	 H3_MIC2_GAIN_SHIFT	0
+#define	 H3_MIC2_GAIN_MASK	(0x7 << H3_MIC2_GAIN_SHIFT)
 #define	H3_PAEN_CTR		0x07
 #define	 H3_LINEOUTEN		(1 << 7)
 #define	H3_LINEOUT_VOLC		0x09
@@ -401,6 +406,12 @@ MIXER_DECLARE(a10_mixer);
 #define	H3_MIC2G_LINEOUT_CTR	0x0a
 #define	 H3_LINEOUT_LSEL	(1 << 3)
 #define	 H3_LINEOUT_RSEL	(1 << 2)
+#define	H3_LADCMIXSC		0x0c
+#define	H3_RADCMIXSC		0x0d
+#define	 H3_ADCMIXSC_MIC1	(1 << 6)
+#define	 H3_ADCMIXSC_MIC2	(1 << 5)
+#define	 H3_ADCMIXSC_LINEIN	(1 << 2)
+#define	 H3_ADCMIXSC_OMIXER	(3 << 0)
 #define	H3_ADC_AP_EN		0x0f
 #define	 H3_ADCREN		(1 << 7)
 #define	 H3_ADCLEN		(1 << 6)
@@ -474,14 +485,15 @@ h3_mixer_init(struct snd_mixer *m)
 {
 	struct a10codec_info *sc = mix_getdevinfo(m);
 
-	mix_setdevs(m, SOUND_MASK_PCM | SOUND_MASK_LINE | SOUND_MASK_RECLEV);
-	mix_setrecdevs(m, SOUND_MASK_LINE | SOUND_MASK_LINE1 | SOUND_MASK_MIC);
+	mix_setdevs(m, SOUND_MASK_PCM | SOUND_MASK_VOLUME | SOUND_MASK_RECLEV |
+	    SOUND_MASK_MIC | SOUND_MASK_LINE | SOUND_MASK_LINE1);
+	mix_setrecdevs(m, SOUND_MASK_MIC | SOUND_MASK_LINE | SOUND_MASK_LINE1 |
+	    SOUND_MASK_IMIX);
 
 	pcm_setflags(sc->dev, pcm_getflags(sc->dev) | SD_F_SOFTPCMVOL);
 
 	/* Right & Left LINEOUT enable */
 	h3_pr_set_clear(sc, H3_PAEN_CTR, H3_LINEOUTEN, 0);
-	h3_pr_set_clear(sc, H3_LINEOUT_VOLC, H3_LINEOUTVOL_MASK, 0);
 	h3_pr_set_clear(sc, H3_MIC2G_LINEOUT_CTR,
 	    H3_LINEOUT_LSEL | H3_LINEOUT_RSEL, 0);
 
@@ -493,10 +505,16 @@ static const struct h3_mixer {
 	unsigned mask;
 	unsigned shift;
 } h3_mixers[SOUND_MIXER_NRDEVICES] = {
-	[SOUND_MIXER_LINE]	= { H3_LINEOUT_VOLC, H3_LINEOUTVOL_MASK,
+	[SOUND_MIXER_VOLUME]	= { H3_LINEOUT_VOLC, H3_LINEOUTVOL_MASK,
 				    H3_LINEOUTVOL_SHIFT },
 	[SOUND_MIXER_RECLEV]	= { H3_ADC_AP_EN, H3_ADCG_MASK,
 				    H3_ADCG_SHIFT },
+	[SOUND_MIXER_LINE]	= { H3_LINEIN_GCTR, H3_LINEING_MASK,
+				    H3_LINEING_SHIFT },
+	[SOUND_MIXER_MIC]	= { H3_MIC_GCTR, H3_MIC1_GAIN_MASK,
+				    H3_MIC1_GAIN_SHIFT },
+	[SOUND_MIXER_LINE1]	= { H3_MIC_GCTR, H3_MIC2_GAIN_MASK,
+				    H3_MIC2_GAIN_SHIFT },
 };
 
 static int
@@ -519,9 +537,26 @@ h3_mixer_set(struct snd_mixer *m, unsigned dev, unsigned left,
 static uint32_t
 h3_mixer_setrecsrc(struct snd_mixer *m, uint32_t src)
 {
-	//struct a10codec_info *sc = mix_getdevinfo(m);
+	struct a10codec_info *sc = mix_getdevinfo(m);
+	uint32_t val;
 
-	return (0);
+	val = 0;
+	src &= (SOUND_MASK_LINE | SOUND_MASK_MIC |
+	    SOUND_MASK_LINE1 | SOUND_MASK_IMIX);
+
+	if ((src & SOUND_MASK_LINE) != 0)	/* line-in */
+		val |= H3_ADCMIXSC_LINEIN;
+	if ((src & SOUND_MASK_MIC) != 0)	/* MIC1 */
+		val |= H3_ADCMIXSC_MIC1;
+	if ((src & SOUND_MASK_LINE1) != 0)	/* MIC2 */
+		val |= H3_ADCMIXSC_MIC2;
+	if ((src & SOUND_MASK_IMIX) != 0)	/* l/r output mixer */
+		val |= H3_ADCMIXSC_OMIXER;
+
+	h3_pr_write(sc, H3_LADCMIXSC, val);
+	h3_pr_write(sc, H3_RADCMIXSC, val);
+
+	return (src);
 }
 
 static void
