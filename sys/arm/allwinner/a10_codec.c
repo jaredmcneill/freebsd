@@ -132,39 +132,6 @@ struct a10codec_config {
 #define	AC_DAC_CNT(_sc)		((_sc)->cfg->DAC_CNT)
 #define	AC_ADC_CNT(_sc)		((_sc)->cfg->ADC_CNT)
 
-/* A10/A20 mixer */
-#define	AC_DAC_ACTL	0x10
-#define	 DAC_ACTL_DACAREN		(1U << 31)
-#define	 DAC_ACTL_DACALEN		(1U << 30)
-#define	 DAC_ACTL_MIXEN			(1U << 29)
-#define	 DAC_ACTL_DACPAS		(1U << 8)
-#define	 DAC_ACTL_PAMUTE		(1U << 6)
-#define	 DAC_ACTL_PAVOL_SHIFT		0
-#define	 DAC_ACTL_PAVOL_MASK		(0x3f << DAC_ACTL_PAVOL_SHIFT)
-#define	AC_ADC_ACTL	0x28
-#define	 ADC_ACTL_ADCREN		(1U << 31)
-#define	 ADC_ACTL_ADCLEN		(1U << 30)
-#define	 ADC_ACTL_PREG1EN		(1U << 29)
-#define	 ADC_ACTL_PREG2EN		(1U << 28)
-#define	 ADC_ACTL_VMICEN		(1U << 27)
-#define	 ADC_ACTL_ADCG_SHIFT		20
-#define	 ADC_ACTL_ADCG_MASK		(7U << ADC_ACTL_ADCG_SHIFT)
-#define	 ADC_ACTL_ADCIS_SHIFT		17
-#define	 ADC_ACTL_ADCIS_MASK		(7U << ADC_ACTL_ADCIS_SHIFT)
-#define	  ADC_IS_LINEIN			0
-#define	  ADC_IS_FMIN			1
-#define	  ADC_IS_MIC1			2
-#define	  ADC_IS_MIC2			3
-#define	  ADC_IS_MIC1_L_MIC2_R		4
-#define	  ADC_IS_MIC1_LR_MIC2_LR	5
-#define	  ADC_IS_OMIX			6
-#define	  ADC_IS_LINEIN_L_MIC1_R	7
-#define	 ADC_ACTL_LNRDF			(1U << 16)
-#define	 ADC_ACTL_LNPREG_SHIFT		13
-#define	 ADC_ACTL_LNPREG_MASK		(7U << ADC_ACTL_LNPREG_SHIFT)
-#define	 ADC_ACTL_PA_EN			(1U << 4)
-#define	 ADC_ACTL_DDE			(1U << 3)
-
 static uint32_t a10codec_fmt[] = {
 	SND_FORMAT(AFMT_S16_LE, 1, 0),
 	SND_FORMAT(AFMT_S16_LE, 2, 0),
@@ -223,6 +190,38 @@ static struct resource_spec a10codec_spec[] = {
  * A10/A20 mixer interface
  */
 
+#define	A10_DAC_ACTL	0x10
+#define	 A10_DACAREN			(1U << 31)
+#define	 A10_DACALEN			(1U << 30)
+#define	 A10_MIXEN			(1U << 29)
+#define	 A10_DACPAS			(1U << 8)
+#define	 A10_PAMUTE			(1U << 6)
+#define	 A10_PAVOL_SHIFT		0
+#define	 A10_PAVOL_MASK			(0x3f << A10_PAVOL_SHIFT)
+#define	A10_ADC_ACTL	0x28
+#define	 A10_ADCREN			(1U << 31)
+#define	 A10_ADCLEN			(1U << 30)
+#define	 A10_PREG1EN			(1U << 29)
+#define	 A10_PREG2EN			(1U << 28)
+#define	 A10_VMICEN			(1U << 27)
+#define	 A10_ADCG_SHIFT			20
+#define	 A10_ADCG_MASK			(7U << A10_ADCG_SHIFT)
+#define	 A10_ADCIS_SHIFT		17
+#define	 A10_ADCIS_MASK			(7U << A10_ADCIS_SHIFT)
+#define	  A10_ADC_IS_LINEIN			0
+#define	  A10_ADC_IS_FMIN			1
+#define	  A10_ADC_IS_MIC1			2
+#define	  A10_ADC_IS_MIC2			3
+#define	  A10_ADC_IS_MIC1_L_MIC2_R		4
+#define	  A10_ADC_IS_MIC1_LR_MIC2_LR		5
+#define	  A10_ADC_IS_OMIX			6
+#define	  A10_ADC_IS_LINEIN_L_MIC1_R		7
+#define	 A10_LNRDF			(1U << 16)
+#define	 A10_LNPREG_SHIFT		13
+#define	 A10_LNPREG_MASK		(7U << A10_LNPREG_SHIFT)
+#define	 A10_PA_EN			(1U << 4)
+#define	 A10_DDE			(1U << 3)
+
 static int
 a10_mixer_init(struct snd_mixer *m)
 {
@@ -233,14 +232,14 @@ a10_mixer_init(struct snd_mixer *m)
 	mix_setrecdevs(m, SOUND_MASK_LINE | SOUND_MASK_LINE1 | SOUND_MASK_MIC);
 
 	/* Unmute input source to PA */
-	val = CODEC_READ(sc, AC_DAC_ACTL);
-	val |= DAC_ACTL_PAMUTE;
-	CODEC_WRITE(sc, AC_DAC_ACTL, val);
+	val = CODEC_READ(sc, A10_DAC_ACTL);
+	val |= A10_PAMUTE;
+	CODEC_WRITE(sc, A10_DAC_ACTL, val);
 
 	/* Enable PA */
-	val = CODEC_READ(sc, AC_ADC_ACTL);
-	val |= ADC_ACTL_PA_EN;
-	CODEC_WRITE(sc, AC_ADC_ACTL, val);
+	val = CODEC_READ(sc, A10_ADC_ACTL);
+	val |= A10_PA_EN;
+	CODEC_WRITE(sc, A10_ADC_ACTL, val);
 
 	return (0);
 }
@@ -250,12 +249,12 @@ static const struct a10_mixer {
 	unsigned mask;
 	unsigned shift;
 } a10_mixers[SOUND_MIXER_NRDEVICES] = {
-	[SOUND_MIXER_VOLUME]	= { AC_DAC_ACTL, DAC_ACTL_PAVOL_MASK,
-				    DAC_ACTL_PAVOL_SHIFT },
-	[SOUND_MIXER_LINE]	= { AC_ADC_ACTL, ADC_ACTL_LNPREG_MASK,
-				    ADC_ACTL_LNPREG_SHIFT },
-	[SOUND_MIXER_RECLEV]	= { AC_ADC_ACTL, ADC_ACTL_ADCG_MASK,
-				    ADC_ACTL_ADCG_SHIFT },
+	[SOUND_MIXER_VOLUME]	= { A10_DAC_ACTL, A10_PAVOL_MASK,
+				    A10_PAVOL_SHIFT },
+	[SOUND_MIXER_LINE]	= { A10_ADC_ACTL, A10_LNPREG_MASK,
+				    A10_LNPREG_SHIFT },
+	[SOUND_MIXER_RECLEV]	= { A10_ADC_ACTL, A10_ADCG_MASK,
+				    A10_ADCG_SHIFT },
 }; 
 
 static int
@@ -284,33 +283,33 @@ a10_mixer_setrecsrc(struct snd_mixer *m, uint32_t src)
 	struct a10codec_info *sc = mix_getdevinfo(m);
 	uint32_t val;
 
-	val = CODEC_READ(sc, AC_ADC_ACTL);
+	val = CODEC_READ(sc, A10_ADC_ACTL);
 
 	switch (src) {
 	case SOUND_MASK_LINE:	/* line-in */
-		val &= ~ADC_ACTL_ADCIS_MASK;
-		val |= (ADC_IS_LINEIN << ADC_ACTL_ADCIS_SHIFT);
+		val &= ~A10_ADCIS_MASK;
+		val |= (A10_ADC_IS_LINEIN << A10_ADCIS_SHIFT);
 		break;
 	case SOUND_MASK_MIC:	/* MIC1 */
-		val &= ~ADC_ACTL_ADCIS_MASK;
-		val |= (ADC_IS_MIC1 << ADC_ACTL_ADCIS_SHIFT);
+		val &= ~A10_ADCIS_MASK;
+		val |= (A10_ADC_IS_MIC1 << A10_ADCIS_SHIFT);
 		break;
 	case SOUND_MASK_LINE1:	/* MIC2 */
-		val &= ~ADC_ACTL_ADCIS_MASK;
-		val |= (ADC_IS_MIC2 << ADC_ACTL_ADCIS_SHIFT);
+		val &= ~A10_ADCIS_MASK;
+		val |= (A10_ADC_IS_MIC2 << A10_ADCIS_SHIFT);
 		break;
 	default:
 		break;
 	}
 
-	CODEC_WRITE(sc, AC_ADC_ACTL, val);
+	CODEC_WRITE(sc, A10_ADC_ACTL, val);
 
-	switch ((val & ADC_ACTL_ADCIS_MASK) >> ADC_ACTL_ADCIS_SHIFT) {
-	case ADC_IS_LINEIN:
+	switch ((val & A10_ADCIS_MASK) >> A10_ADCIS_SHIFT) {
+	case A10_ADC_IS_LINEIN:
 		return (SOUND_MASK_LINE);
-	case ADC_IS_MIC1:
+	case A10_ADC_IS_MIC1:
 		return (SOUND_MASK_MIC);
-	case ADC_IS_MIC2:
+	case A10_ADC_IS_MIC2:
 		return (SOUND_MASK_LINE1);
 	default:
 		return (0);
@@ -323,39 +322,39 @@ a10_mute(struct a10codec_info *sc, int mute, int dir)
 	uint32_t val;
 
 	if (dir == PCMDIR_PLAY) {
-		val = CODEC_READ(sc, AC_DAC_ACTL);
+		val = CODEC_READ(sc, A10_DAC_ACTL);
 		if (mute) {
 			/* Disable DAC analog l/r channels and output mixer */
-			val &= ~DAC_ACTL_DACAREN;
-			val &= ~DAC_ACTL_DACALEN;
-			val &= ~DAC_ACTL_DACPAS;
+			val &= ~A10_DACAREN;
+			val &= ~A10_DACALEN;
+			val &= ~A10_DACPAS;
 		} else {
 			/* Enable DAC analog l/r channels and output mixer */
-			val |= DAC_ACTL_DACAREN;
-			val |= DAC_ACTL_DACALEN;
-			val |= DAC_ACTL_DACPAS;
+			val |= A10_DACAREN;
+			val |= A10_DACALEN;
+			val |= A10_DACPAS;
 		}
-		CODEC_WRITE(sc, AC_DAC_ACTL, val);
+		CODEC_WRITE(sc, A10_DAC_ACTL, val);
 	} else {
-		val = CODEC_READ(sc, AC_ADC_ACTL);
+		val = CODEC_READ(sc, A10_ADC_ACTL);
 		if (mute) {
 			/* Disable ADC analog l/r channels, MIC1 preamp,
 			 * and VMIC pin voltage
 			 */
-			val &= ~ADC_ACTL_ADCREN;
-			val &= ~ADC_ACTL_ADCLEN;
-			val &= ~ADC_ACTL_PREG1EN;
-			val &= ~ADC_ACTL_VMICEN;
+			val &= ~A10_ADCREN;
+			val &= ~A10_ADCLEN;
+			val &= ~A10_PREG1EN;
+			val &= ~A10_VMICEN;
 		} else {
 			/* Enable ADC analog l/r channels, MIC1 preamp,
 			 * and VMIC pin voltage
 			 */
-			val |= ADC_ACTL_ADCREN;
-			val |= ADC_ACTL_ADCLEN;
-			val |= ADC_ACTL_PREG1EN;
-			val |= ADC_ACTL_VMICEN;
+			val |= A10_ADCREN;
+			val |= A10_ADCLEN;
+			val |= A10_PREG1EN;
+			val |= A10_VMICEN;
 		}
-		CODEC_WRITE(sc, AC_ADC_ACTL, val);
+		CODEC_WRITE(sc, A10_ADC_ACTL, val);
 	}
 }
 
@@ -372,40 +371,41 @@ MIXER_DECLARE(a10_mixer);
  * H3 mixer interface
  */
 
-#define	AC_PR_RST		(1 << 18)
-#define	AC_PR_RW		(1 << 24)
-#define	AC_PR_ADDR_SHIFT	16
-#define	AC_PR_ADDR_MASK		(0x1f << AC_PR_ADDR_SHIFT)
-#define	ACDA_PR_WDAT_SHIFT	8
-#define	ACDA_PR_WDAT_MASK	(0xff << ACDA_PR_WDAT_SHIFT)
-#define	ACDA_PR_RDAT_SHIFT	0
-#define	ACDA_PR_RDAT_MASK	(0xff << ACDA_PR_RDAT_SHIFT)
+#define	H3_PR_CFG		0x00
+#define	 H3_AC_PR_RST		(1 << 18)
+#define	 H3_AC_PR_RW		(1 << 24)
+#define	 H3_AC_PR_ADDR_SHIFT	16
+#define	 H3_AC_PR_ADDR_MASK	(0x1f << H3_AC_PR_ADDR_SHIFT)
+#define	 H3_ACDA_PR_WDAT_SHIFT	8
+#define	 H3_ACDA_PR_WDAT_MASK	(0xff << H3_ACDA_PR_WDAT_SHIFT)
+#define	 H3_ACDA_PR_RDAT_SHIFT	0
+#define	 H3_ACDA_PR_RDAT_MASK	(0xff << H3_ACDA_PR_RDAT_SHIFT)
 
-#define	LOMIXSC			0x01
-#define	 LOMIXSC_LDAC		(1 << 1)
-#define	ROMIXSC			0x02
-#define	 ROMIXSC_RDAC		(1 << 1)
-#define	DAC_PA_SRC		0x03
-#define	 DACAREN		(1 << 7)
-#define	 DACALEN		(1 << 6)
-#define	 RMIXEN			(1 << 5)
-#define	 LMIXEN			(1 << 4)
-#define	LINEIN_GCTR		0x05
-#define	 LINEING_SHIFT		4
-#define	 LINEING_MASK		(0x7 << LINEING_SHIFT)
-#define	PAEN_CTR		0x07
-#define	 LINEOUTEN		(1 << 7)
-#define	LINEOUT_VOLC		0x09
-#define	 LINEOUTVOL_SHIFT	3
-#define	 LINEOUTVOL_MASK	(0x1f << LINEOUTVOL_SHIFT)
-#define	MIC2G_LINEOUT_CTR	0x0a
-#define	 LINEOUT_LSEL		(1 << 3)
-#define	 LINEOUT_RSEL		(1 << 2)
-#define	ADC_AP_EN		0x0f
-#define	 ADCREN			(1 << 7)
-#define	 ADCLEN			(1 << 6)
-#define	 ADCG_SHIFT		0
-#define	 ADCG_MASK		(0x7 << ADCG_SHIFT)
+#define	H3_LOMIXSC		0x01
+#define	 H3_LOMIXSC_LDAC	(1 << 1)
+#define	H3_ROMIXSC		0x02
+#define	 H3_ROMIXSC_RDAC	(1 << 1)
+#define	H3_DAC_PA_SRC		0x03
+#define	 H3_DACAREN		(1 << 7)
+#define	 H3_DACALEN		(1 << 6)
+#define	 H3_RMIXEN		(1 << 5)
+#define	 H3_LMIXEN		(1 << 4)
+#define	H3_LINEIN_GCTR		0x05
+#define	 H3_LINEING_SHIFT	4
+#define	 H3_LINEING_MASK	(0x7 << H3_LINEING_SHIFT)
+#define	H3_PAEN_CTR		0x07
+#define	 H3_LINEOUTEN		(1 << 7)
+#define	H3_LINEOUT_VOLC		0x09
+#define	 H3_LINEOUTVOL_SHIFT	3
+#define	 H3_LINEOUTVOL_MASK	(0x1f << H3_LINEOUTVOL_SHIFT)
+#define	H3_MIC2G_LINEOUT_CTR	0x0a
+#define	 H3_LINEOUT_LSEL	(1 << 3)
+#define	 H3_LINEOUT_RSEL	(1 << 2)
+#define	H3_ADC_AP_EN		0x0f
+#define	 H3_ADCREN		(1 << 7)
+#define	 H3_ADCLEN		(1 << 6)
+#define	 H3_ADCG_SHIFT		0
+#define	 H3_ADCG_MASK		(0x7 << H3_ADCG_SHIFT)
 
 static u_int 
 h3_pr_read(struct a10codec_info *sc, u_int addr)
@@ -413,23 +413,23 @@ h3_pr_read(struct a10codec_info *sc, u_int addr)
 	uint32_t val;
 
 	/* Read current value */
-	val = bus_read_4(sc->res[1], 0);
+	val = bus_read_4(sc->res[1], H3_PR_CFG);
 
 	/* De-assert reset */
-	val |= AC_PR_RST;
-	bus_write_4(sc->res[1], 0, val);
+	val |= H3_AC_PR_RST;
+	bus_write_4(sc->res[1], H3_PR_CFG, val);
 
 	/* Read mode */
-	val &= ~AC_PR_RW;
-	bus_write_4(sc->res[1], 0, val);
+	val &= ~H3_AC_PR_RW;
+	bus_write_4(sc->res[1], H3_PR_CFG, val);
 
 	/* Set address */
-	val &= ~AC_PR_ADDR_MASK;
-	val |= (addr << AC_PR_ADDR_SHIFT);
-	bus_write_4(sc->res[1], 0, val);
+	val &= ~H3_AC_PR_ADDR_MASK;
+	val |= (addr << H3_AC_PR_ADDR_SHIFT);
+	bus_write_4(sc->res[1], H3_PR_CFG, val);
 
 	/* Read data */
-	return (bus_read_4(sc->res[1], 0) & ACDA_PR_RDAT_MASK);
+	return (bus_read_4(sc->res[1], H3_PR_CFG) & H3_ACDA_PR_RDAT_MASK);
 }
 
 static void
@@ -438,25 +438,25 @@ h3_pr_write(struct a10codec_info *sc, u_int addr, u_int data)
 	uint32_t val;
 
 	/* Read current value */
-	val = bus_read_4(sc->res[1], 0);
+	val = bus_read_4(sc->res[1], H3_PR_CFG);
 
 	/* De-assert reset */
-	val |= AC_PR_RST;
-	bus_write_4(sc->res[1], 0, val);
+	val |= H3_AC_PR_RST;
+	bus_write_4(sc->res[1], H3_PR_CFG, val);
 
 	/* Set address */
-	val &= ~AC_PR_ADDR_MASK;
-	val |= (addr << AC_PR_ADDR_SHIFT);
-	bus_write_4(sc->res[1], 0, val);
+	val &= ~H3_AC_PR_ADDR_MASK;
+	val |= (addr << H3_AC_PR_ADDR_SHIFT);
+	bus_write_4(sc->res[1], H3_PR_CFG, val);
 
 	/* Write data */
-	val &= ~ACDA_PR_WDAT_MASK;
-	val |= (data << ACDA_PR_WDAT_SHIFT);
-	bus_write_4(sc->res[1], 0, val);
+	val &= ~H3_ACDA_PR_WDAT_MASK;
+	val |= (data << H3_ACDA_PR_WDAT_SHIFT);
+	bus_write_4(sc->res[1], H3_PR_CFG, val);
 
 	/* Write mode */
-	val |= AC_PR_RW;
-	bus_write_4(sc->res[1], 0, val);
+	val |= H3_AC_PR_RW;
+	bus_write_4(sc->res[1], H3_PR_CFG, val);
 }
 
 static void
@@ -480,9 +480,10 @@ h3_mixer_init(struct snd_mixer *m)
 	pcm_setflags(sc->dev, pcm_getflags(sc->dev) | SD_F_SOFTPCMVOL);
 
 	/* Right & Left LINEOUT enable */
-	h3_pr_set_clear(sc, PAEN_CTR, LINEOUTEN, 0);
-	h3_pr_set_clear(sc, LINEOUT_VOLC, LINEOUTVOL_MASK, 0);
-	h3_pr_set_clear(sc, MIC2G_LINEOUT_CTR, LINEOUT_LSEL | LINEOUT_RSEL, 0);
+	h3_pr_set_clear(sc, H3_PAEN_CTR, H3_LINEOUTEN, 0);
+	h3_pr_set_clear(sc, H3_LINEOUT_VOLC, H3_LINEOUTVOL_MASK, 0);
+	h3_pr_set_clear(sc, H3_MIC2G_LINEOUT_CTR,
+	    H3_LINEOUT_LSEL | H3_LINEOUT_RSEL, 0);
 
 	return (0);
 }
@@ -492,10 +493,10 @@ static const struct h3_mixer {
 	unsigned mask;
 	unsigned shift;
 } h3_mixers[SOUND_MIXER_NRDEVICES] = {
-	[SOUND_MIXER_LINE]	= { LINEOUT_VOLC, LINEOUTVOL_MASK,
-				    LINEOUTVOL_SHIFT },
-	[SOUND_MIXER_RECLEV]	= { ADC_AP_EN, ADCG_MASK,
-				    ADCG_SHIFT },
+	[SOUND_MIXER_LINE]	= { H3_LINEOUT_VOLC, H3_LINEOUTVOL_MASK,
+				    H3_LINEOUTVOL_SHIFT },
+	[SOUND_MIXER_RECLEV]	= { H3_ADC_AP_EN, H3_ADCG_MASK,
+				    H3_ADCG_SHIFT },
 };
 
 static int
@@ -529,26 +530,28 @@ h3_mute(struct a10codec_info *sc, int mute, int dir)
 	if (dir == PCMDIR_PLAY) {
 		if (mute) {
 			/* Mute DAC l/r channels to output mixer */
-			h3_pr_set_clear(sc, LOMIXSC, 0, LOMIXSC_LDAC);
-			h3_pr_set_clear(sc, ROMIXSC, 0, ROMIXSC_RDAC);
+			h3_pr_set_clear(sc, H3_LOMIXSC, 0, H3_LOMIXSC_LDAC);
+			h3_pr_set_clear(sc, H3_ROMIXSC, 0, H3_ROMIXSC_RDAC);
 			/* Disable DAC analog l/r channels and output mixer */
-			h3_pr_set_clear(sc, DAC_PA_SRC,
-			    0, DACAREN | DACALEN | RMIXEN | LMIXEN);
+			h3_pr_set_clear(sc, H3_DAC_PA_SRC,
+			    0, H3_DACAREN | H3_DACALEN | H3_RMIXEN | H3_LMIXEN);
 		} else {
 			/* Enable DAC analog l/r channels and output mixer */
-			h3_pr_set_clear(sc, DAC_PA_SRC,
-			    DACAREN | DACALEN | RMIXEN | LMIXEN, 0);
+			h3_pr_set_clear(sc, H3_DAC_PA_SRC,
+			    H3_DACAREN | H3_DACALEN | H3_RMIXEN | H3_LMIXEN, 0);
 			/* Unmute DAC l/r channels to output mixer */
-			h3_pr_set_clear(sc, LOMIXSC, LOMIXSC_LDAC, 0);
-			h3_pr_set_clear(sc, ROMIXSC, ROMIXSC_RDAC, 0);
+			h3_pr_set_clear(sc, H3_LOMIXSC, H3_LOMIXSC_LDAC, 0);
+			h3_pr_set_clear(sc, H3_ROMIXSC, H3_ROMIXSC_RDAC, 0);
 		}
 	} else {
 		if (mute) {
 			/* Disable ADC analog l/r channels */
-			h3_pr_set_clear(sc, ADC_AP_EN, 0, ADCREN | ADCLEN);
+			h3_pr_set_clear(sc, H3_ADC_AP_EN,
+			    0, H3_ADCREN | H3_ADCLEN);
 		} else {
 			/* Enable ADC analog l/r channels */
-			h3_pr_set_clear(sc, ADC_AP_EN, ADCREN | ADCLEN, 0);
+			h3_pr_set_clear(sc, H3_ADC_AP_EN,
+			    H3_ADCREN | H3_ADCLEN, 0);
 		}
 	}
 }
