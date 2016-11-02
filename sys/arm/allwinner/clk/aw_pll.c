@@ -180,10 +180,6 @@ __FBSDID("$FreeBSD$");
 #define	H3_PLL2_PRE_DIV			(0x1f << 0)
 #define	H3_PLL2_PRE_DIV_SHIFT		0
 
-#define	A10_PLL3_MODE_SEL		(0x1 << 15)
-#define	A10_PLL3_MODE_SEL_FRACT		(0 << 15)
-#define	A10_PLL3_MODE_SEL_INT		(1 << 15)
-
 #define	CLKID_A10_PLL3_1X		0
 #define	CLKID_A10_PLL3_2X		1
 
