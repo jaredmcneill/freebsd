@@ -50,12 +50,13 @@ __FBSDID("$FreeBSD$");
 #include <dev/ofw/ofw_bus.h>
 #include <dev/ofw/ofw_bus_subr.h>
 
+#include <dev/gpio/gpiobusvar.h>
+
 #include <dev/extres/clk/clk.h>
 #include <dev/extres/hwreset/hwreset.h>
 
 #include "sunxi_dma_if.h"
 #include "mixer_if.h"
-#include "gpio_if.h"
 
 struct a10codec_info;
 
@@ -226,12 +227,7 @@ static int
 a10_mixer_init(struct snd_mixer *m)
 {
 	struct a10codec_info *sc = mix_getdevinfo(m);
-	pcell_t prop[4];
-	phandle_t node;
-	device_t gpio;
 	uint32_t val;
-	ssize_t len;
-	int pin;
 
 	mix_setdevs(m, SOUND_MASK_VOLUME | SOUND_MASK_LINE | SOUND_MASK_RECLEV);
 	mix_setrecdevs(m, SOUND_MASK_LINE | SOUND_MASK_LINE1 | SOUND_MASK_MIC);
@@ -245,18 +241,6 @@ a10_mixer_init(struct snd_mixer *m)
 	val = CODEC_READ(sc, AC_ADC_ACTL);
 	val |= ADC_ACTL_PA_EN;
 	CODEC_WRITE(sc, AC_ADC_ACTL, val);
-
-	/* Unmute PA */
-	node = ofw_bus_get_node(sc->dev);
-	len = OF_getencprop(node, "allwinner,pa-gpios", prop, sizeof(prop));
-	if (len > 0 && (len / sizeof(prop[0])) == 4) {
-		gpio = OF_device_from_xref(prop[0]);
-		if (gpio != NULL) {
-			pin = prop[1] * 32 + prop[2];
-			GPIO_PIN_SETFLAGS(gpio, pin, GPIO_PIN_OUTPUT);
-			GPIO_PIN_SET(gpio, pin, GPIO_PIN_LOW);
-		}
-	}
 
 	return (0);
 }
@@ -388,26 +372,144 @@ MIXER_DECLARE(a10_mixer);
  * H3 mixer interface
  */
 
+#define	AC_PR_RST		(1 << 18)
+#define	AC_PR_RW		(1 << 24)
+#define	AC_PR_ADDR_SHIFT	16
+#define	AC_PR_ADDR_MASK		(0x1f << AC_PR_ADDR_SHIFT)
+#define	ACDA_PR_WDAT_SHIFT	8
+#define	ACDA_PR_WDAT_MASK	(0xff << ACDA_PR_WDAT_SHIFT)
+#define	ACDA_PR_RDAT_SHIFT	0
+#define	ACDA_PR_RDAT_MASK	(0xff << ACDA_PR_RDAT_SHIFT)
+
+#define	LOMIXSC			0x01
+#define	 LOMIXSC_LDAC		(1 << 1)
+#define	ROMIXSC			0x02
+#define	 ROMIXSC_RDAC		(1 << 1)
+#define	DAC_PA_SRC		0x03
+#define	 DACAREN		(1 << 7)
+#define	 DACALEN		(1 << 6)
+#define	 RMIXEN			(1 << 5)
+#define	 LMIXEN			(1 << 4)
+#define	LINEIN_GCTR		0x05
+#define	 LINEING_SHIFT		4
+#define	 LINEING_MASK		(0x7 << LINEING_SHIFT)
+#define	PAEN_CTR		0x07
+#define	 LINEOUTEN		(1 << 7)
+#define	LINEOUT_VOLC		0x09
+#define	 LINEOUTVOL_SHIFT	3
+#define	 LINEOUTVOL_MASK	(0x1f << LINEOUTVOL_SHIFT)
+#define	MIC2G_LINEOUT_CTR	0x0a
+#define	 LINEOUT_LSEL		(1 << 3)
+#define	 LINEOUT_RSEL		(1 << 2)
+#define	ADC_AP_EN		0x0f
+#define	 ADCREN			(1 << 7)
+#define	 ADCLEN			(1 << 6)
+#define	 ADCG_SHIFT		0
+#define	 ADCG_MASK		(0x7 << ADCG_SHIFT)
+
+static u_int 
+h3_pr_read(struct a10codec_info *sc, u_int addr)
+{
+	uint32_t val;
+
+	/* Read current value */
+	val = bus_read_4(sc->res[1], 0);
+
+	/* De-assert reset */
+	val |= AC_PR_RST;
+	bus_write_4(sc->res[1], 0, val);
+
+	/* Read mode */
+	val &= ~AC_PR_RW;
+	bus_write_4(sc->res[1], 0, val);
+
+	/* Set address */
+	val &= ~AC_PR_ADDR_MASK;
+	val |= (addr << AC_PR_ADDR_SHIFT);
+	bus_write_4(sc->res[1], 0, val);
+
+	/* Read data */
+	return (bus_read_4(sc->res[1], 0) & ACDA_PR_RDAT_MASK);
+}
+
+static void
+h3_pr_write(struct a10codec_info *sc, u_int addr, u_int data)
+{
+	uint32_t val;
+
+	/* Read current value */
+	val = bus_read_4(sc->res[1], 0);
+
+	/* De-assert reset */
+	val |= AC_PR_RST;
+	bus_write_4(sc->res[1], 0, val);
+
+	/* Set address */
+	val &= ~AC_PR_ADDR_MASK;
+	val |= (addr << AC_PR_ADDR_SHIFT);
+	bus_write_4(sc->res[1], 0, val);
+
+	/* Write data */
+	val &= ~ACDA_PR_WDAT_MASK;
+	val |= (data << ACDA_PR_WDAT_SHIFT);
+	bus_write_4(sc->res[1], 0, val);
+
+	/* Write mode */
+	val |= AC_PR_RW;
+	bus_write_4(sc->res[1], 0, val);
+}
+
+static void
+h3_pr_set_clear(struct a10codec_info *sc, u_int addr, u_int set, u_int clr)
+{
+	u_int old, new;
+
+	old = h3_pr_read(sc, addr);
+	new = set | (old & ~clr);
+	h3_pr_write(sc, addr, new);
+}
+
 static int
 h3_mixer_init(struct snd_mixer *m)
 {
-	//struct a10codec_info *sc = mix_getdevinfo(m);
+	struct a10codec_info *sc = mix_getdevinfo(m);
 
-	mix_setdevs(m, SOUND_MASK_VOLUME | SOUND_MASK_LINE | SOUND_MASK_RECLEV);
+	mix_setdevs(m, SOUND_MASK_PCM | SOUND_MASK_LINE | SOUND_MASK_RECLEV);
 	mix_setrecdevs(m, SOUND_MASK_LINE | SOUND_MASK_LINE1 | SOUND_MASK_MIC);
+
+	pcm_setflags(sc->dev, pcm_getflags(sc->dev) | SD_F_SOFTPCMVOL);
+
+	/* Right & Left LINEOUT enable */
+	h3_pr_set_clear(sc, PAEN_CTR, LINEOUTEN, 0);
+	h3_pr_set_clear(sc, LINEOUT_VOLC, LINEOUTVOL_MASK, 0);
+	h3_pr_set_clear(sc, MIC2G_LINEOUT_CTR, LINEOUT_LSEL | LINEOUT_RSEL, 0);
 
 	return (0);
 }
+
+static const struct h3_mixer {
+	unsigned reg;
+	unsigned mask;
+	unsigned shift;
+} h3_mixers[SOUND_MIXER_NRDEVICES] = {
+	[SOUND_MIXER_LINE]	= { LINEOUT_VOLC, LINEOUTVOL_MASK,
+				    LINEOUTVOL_SHIFT },
+	[SOUND_MIXER_RECLEV]	= { ADC_AP_EN, ADCG_MASK,
+				    ADCG_SHIFT },
+};
 
 static int
 h3_mixer_set(struct snd_mixer *m, unsigned dev, unsigned left,
     unsigned right)
 {
-	//struct a10codec_info *sc = mix_getdevinfo(m);
+	struct a10codec_info *sc = mix_getdevinfo(m);
 	unsigned nvol, max;
 
-	max = 100;
+	max = h3_mixers[dev].mask >> h3_mixers[dev].shift;
 	nvol = (left * max) / 100;
+
+	h3_pr_set_clear(sc, h3_mixers[dev].reg,
+	    nvol << h3_mixers[dev].shift, h3_mixers[dev].mask);
 
 	left = right = (left * 100) / max;
 	return (left | (right << 8));
@@ -424,6 +526,31 @@ h3_mixer_setrecsrc(struct snd_mixer *m, uint32_t src)
 static void
 h3_mute(struct a10codec_info *sc, int mute, int dir)
 {
+	if (dir == PCMDIR_PLAY) {
+		if (mute) {
+			/* Mute DAC l/r channels to output mixer */
+			h3_pr_set_clear(sc, LOMIXSC, 0, LOMIXSC_LDAC);
+			h3_pr_set_clear(sc, ROMIXSC, 0, ROMIXSC_RDAC);
+			/* Disable DAC analog l/r channels and output mixer */
+			h3_pr_set_clear(sc, DAC_PA_SRC,
+			    0, DACAREN | DACALEN | RMIXEN | LMIXEN);
+		} else {
+			/* Enable DAC analog l/r channels and output mixer */
+			h3_pr_set_clear(sc, DAC_PA_SRC,
+			    DACAREN | DACALEN | RMIXEN | LMIXEN, 0);
+			/* Unmute DAC l/r channels to output mixer */
+			h3_pr_set_clear(sc, LOMIXSC, LOMIXSC_LDAC, 0);
+			h3_pr_set_clear(sc, ROMIXSC, ROMIXSC_RDAC, 0);
+		}
+	} else {
+		if (mute) {
+			/* Disable ADC analog l/r channels */
+			h3_pr_set_clear(sc, ADC_AP_EN, 0, ADCREN | ADCLEN);
+		} else {
+			/* Enable ADC analog l/r channels */
+			h3_pr_set_clear(sc, ADC_AP_EN, ADCREN | ADCLEN, 0);
+		}
+	}
 }
 
 static kobj_method_t h3_mixer_methods[] = {
@@ -885,10 +1012,14 @@ a10codec_attach(device_t dev)
 {
 	struct a10codec_info *sc;
 	char status[SND_STATUSLEN];
+	struct gpiobus_pin *pa_pin;
+	phandle_t node;
 	clk_t clk_bus, clk_codec;
 	hwreset_t rst;
 	uint32_t val;
 	int error;
+
+	node = ofw_bus_get_node(dev);
 
 	sc = malloc(sizeof(*sc), M_DEVBUF, M_WAITOK | M_ZERO);
 	sc->cfg = (void *)ofw_bus_search_compatible(dev, compat_data)->ocd_data;
@@ -981,6 +1112,14 @@ a10codec_attach(device_t dev)
 	if (mixer_init(dev, sc->cfg->mixer_class, sc)) {
 		device_printf(dev, "mixer_init failed\n");
 		goto fail;
+	}
+
+	/* Unmute PA */
+	if (gpio_pin_get_by_ofw_property(dev, node, "allwinner,pa-gpios",
+	    &pa_pin) == 0) {
+		error = gpio_pin_set_active(pa_pin, 1);
+		if (error != 0)
+			device_printf(dev, "failed to unmute PA\n");
 	}
 
 	pcm_setflags(dev, pcm_getflags(dev) | SD_F_MPSAFE);
