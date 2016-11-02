@@ -184,9 +184,9 @@ unlock_and_deallocate(struct faultstate *fs)
 
 static void
 vm_fault_dirty(vm_map_entry_t entry, vm_page_t m, vm_prot_t prot,
-    vm_prot_t fault_type, int fault_flags, boolean_t set_wd)
+    vm_prot_t fault_type, int fault_flags, bool set_wd)
 {
-	boolean_t need_dirty;
+	bool need_dirty;
 
 	if (((prot & VM_PROT_WRITE) == 0 &&
 	    (fault_flags & VM_FAULT_DIRTY) == 0) ||
@@ -291,14 +291,13 @@ vm_fault_hold(vm_map_t map, vm_offset_t vaddr, vm_prot_t fault_type,
     int fault_flags, vm_page_t *m_hold)
 {
 	vm_prot_t prot;
-	int alloc_req, era, faultcount, nera, result;
-	int map_generation;
 	vm_object_t next_object;
 	struct faultstate fs;
 	struct vnode *vp;
 	vm_offset_t e_end, e_start;
 	vm_page_t m;
-	int ahead, behind, cluster_offset, error, locked, rv;
+	int ahead, alloc_req, behind, cluster_offset, error, era, faultcount;
+	int locked, map_generation, nera, result, rv;
 	u_char behavior;
 	boolean_t wired;	/* Passed by reference. */
 	bool dead, growstack, hardfault, is_first_object_locked;
@@ -398,7 +397,7 @@ RetryFault:;
 			vm_page_unlock(m);
 		}
 		vm_fault_dirty(fs.entry, m, prot, fault_type, fault_flags,
-		    FALSE);
+		    false);
 		VM_OBJECT_RUNLOCK(fs.first_object);
 		if (!wired)
 			vm_fault_prefault(&fs, vaddr, PFBAK, PFFOR);
@@ -421,8 +420,7 @@ fast_failed:
 	 * they will stay around as well.
 	 *
 	 * Bump the paging-in-progress count to prevent size changes (e.g. 
-	 * truncation operations) during I/O.  This must be done after
-	 * obtaining the vnode lock in order to avoid possible deadlocks.
+	 * truncation operations) during I/O.
 	 */
 	vm_object_reference_locked(fs.first_object);
 	vm_object_pip_add(fs.first_object, 1);
@@ -641,16 +639,20 @@ readrest:
 			 */
 			unlock_map(&fs);
 
-			if (fs.object->type == OBJT_VNODE) {
-				vp = fs.object->handle;
-				if (vp == fs.vp)
-					goto vnode_locked;
+			if (fs.object->type == OBJT_VNODE &&
+			    (vp = fs.object->handle) != fs.vp) {
 				unlock_vp(&fs);
 				locked = VOP_ISLOCKED(vp);
 
 				if (locked != LK_EXCLUSIVE)
 					locked = LK_SHARED;
-				/* Do not sleep for vnode lock while fs.m is busy */
+
+				/*
+				 * We must not sleep acquiring the vnode lock
+				 * while we have the page exclusive busied or
+				 * the object's paging-in-progress count
+				 * incremented.  Otherwise, we could deadlock.
+				 */
 				error = vget(vp, locked | LK_CANRECURSE |
 				    LK_NOWAIT, curthread);
 				if (error != 0) {
@@ -667,7 +669,6 @@ readrest:
 				}
 				fs.vp = vp;
 			}
-vnode_locked:
 			KASSERT(fs.vp == NULL || !fs.map->system_map,
 			    ("vm_fault: vnode-backed object mapped by system map"));
 
@@ -991,7 +992,7 @@ vnode_locked:
 	if (hardfault)
 		fs.entry->next_read = vaddr + ptoa(ahead) + PAGE_SIZE;
 
-	vm_fault_dirty(fs.entry, fs.m, prot, fault_type, fault_flags, TRUE);
+	vm_fault_dirty(fs.entry, fs.m, prot, fault_type, fault_flags, true);
 	vm_page_assert_xbusied(fs.m);
 
 	/*
