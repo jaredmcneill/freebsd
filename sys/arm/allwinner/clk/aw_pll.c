@@ -171,6 +171,14 @@ __FBSDID("$FreeBSD$");
 #define	A83T_PLLCPUX_POSTDIV_M		(0x3 << 0)
 #define	A83T_PLLCPUX_POSTDIV_M_SHIFT	0
 
+#define	A83T_PLLVIDEO_SDM_EN		(1 << 24)
+#define	A83T_PLLVIDEO_CLOCK_OUTPUT	(1 << 20)
+#define	A83T_PLLVIDEO_PLL_DIV2		(1 << 18)
+#define	A83T_PLLVIDEO_PLL_DIV		(1 << 16)
+#define	A83T_PLLVIDEO_FACTOR_N		(0xff << 8)
+#define	A83T_PLLVIDEO_FACTOR_N_SHIFT	8
+#define	A83T_PLLVIDEO_OUT_EXP_DIVP	(0x3 << 0)
+
 #define	H3_PLL2_LOCK			(1 << 28)
 #define	H3_PLL2_SDM_EN			(1 << 24)
 #define	H3_PLL2_POST_DIV		(0xf << 16)
@@ -305,6 +313,7 @@ enum aw_pll_type {
 	AWPLL_A64_PLLHSIC,
 	AWPLL_A80_PLL4,
 	AWPLL_A83T_PLLCPUX,
+	AWPLL_A83T_PLLVIDEO,
 	AWPLL_H3_PLL1,
 	AWPLL_H3_PLL2,
 };
@@ -1077,6 +1086,34 @@ a83t_pllcpux_set_freq(struct aw_pll_sc *sc, uint64_t fin, uint64_t *fout,
 	DEVICE_UNLOCK(sc);
 
 	return (0);
+}
+
+static int
+a83t_pllvideo_recalc(struct aw_pll_sc *sc, uint64_t *freq)
+{
+	uint32_t val;
+	u_int n, div, p;
+
+	DEVICE_LOCK(sc);
+	PLL_READ(sc, &val);
+	DEVICE_UNLOCK(sc);
+
+	n = (val & A83T_PLLVIDEO_FACTOR_N) >> A83T_PLLVIDEO_FACTOR_N_SHIFT;
+	div = (val & A83T_PLLVIDEO_PLL_DIV) != 0 ? 1 : 0;
+	p = 1 << (val & A83T_PLLVIDEO_OUT_EXP_DIVP);
+
+	*freq = ((*freq * n) / (div + 1)) / p;
+
+	return (0);
+}
+
+static int
+a83t_pllcpux_set_freq(struct aw_pll_sc *sc, uint64_t fin, uint64_t *fout,
+    int flags)
+{
+	uint32_t val;
+	u_int n;
+
 }
 
 #define	PLL(_type, _recalc, _set_freq, _init)	\
