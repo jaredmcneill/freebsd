@@ -130,6 +130,30 @@
 			clocks = <&mii_phy_tx_clk>, <&emac_int_tx_clk>;
 			clock-output-names = "emac_tx";
 		};
+
+                pll_video1: clk@01c2004c {
+                        #clock-cells = <1>;
+                        compatible = "allwinner,sun8i-a83t-pll-video-clk";
+                        reg = <0x01c2004c 0x4>;
+                        clock-output-names = "pll_video";
+                };
+
+		hdmi_clk: clk@01c20150 {
+			#clock-cells = <0>;
+			compatible = "allwinner,sun8i-a83t-hdmi-clk";
+			reg = <0x01c20150 0x4>;
+			clocks = <&pll_video1>;
+			clock-output-names = "hdmi";
+                };
+
+		hdmi_ddc_clk: clk@01c20154 {
+			#clock-cells = <0>;
+			compatible = "allwinner,sun8i-a83t-hdmi-ddc-clk";
+			reg = <0x01c20154 0x4>;
+			clocks = <&osc24M>;
+			clock-output-names = "hdmi_ddc";
+                };
+
 	};
 
 	soc {
@@ -240,6 +264,18 @@
 			reg = <0x01f04000 0x400>;
 			interrupts = <GIC_SPI 41 IRQ_TYPE_LEVEL_HIGH>;
 			#thermal-sensor-cells = <0>;
+		};
+
+		hdmi: hdmi@01ee0000 {
+			compatible = "allwinner,sun8i-a83t-hdmi";
+			reg = <0x01ee0000 0x20000>;
+			clocks = <&bus_gates 43>, <&hdmi_clk>, <&hdmi_ddc_clk>;
+			clock-names = "gate", "clock", "ddc-clock";
+			resets = <&ahb_reset 42>, <&ahb_reset 43>;
+			reset-names = "hdmi0", "hdmi1";
+			status = "disabled";
+			#address-cells = <1>;
+			#size-cells = <0>;
 		};
 	};
 };

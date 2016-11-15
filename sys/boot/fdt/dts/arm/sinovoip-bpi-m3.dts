@@ -154,6 +154,10 @@
 	};
 };
 
+&hdmi {
+	status = "okay";
+};
+
 / {
 	leds {
 		compatible = "gpio-leds";
