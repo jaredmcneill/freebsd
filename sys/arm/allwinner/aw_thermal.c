@@ -109,9 +109,9 @@ __FBSDID("$FreeBSD$");
 #define	H3_ADC_ACQUIRE_TIME	0x3f
 #define	H3_FILTER		0x6
 #define	H3_INTC			0x191000
-#define	H3_TEMP_BASE		1794000
+#define	H3_TEMP_BASE		217
 #define	H3_TEMP_MUL		1000
-#define	H3_TEMP_DIV		-8253
+#define	H3_TEMP_DIV		8253
 #define	H3_CLK_RATE		4000000
 
 #define	TEMP_C_TO_K		273
@@ -215,7 +215,7 @@ static const struct aw_thermal_config a64_config = {
 static int
 h3_to_temp(uint32_t val)
 {
-	return (((int)(val * H3_TEMP_MUL) - H3_TEMP_BASE) / H3_TEMP_DIV);
+	return (H3_TEMP_BASE - ((val * H3_TEMP_MUL) / H3_TEMP_DIV));
 }
 
 static const struct aw_thermal_config h3_config = {
