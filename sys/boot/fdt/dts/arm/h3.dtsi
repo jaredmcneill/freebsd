@@ -26,8 +26,6 @@
  * $FreeBSD$
  */
 
-#include "sun8i-h3.dtsi"
-
 #include <dt-bindings/clock/sun4i-a10-pll2.h>
 
 / {
