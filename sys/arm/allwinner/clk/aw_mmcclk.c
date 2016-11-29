@@ -188,7 +188,7 @@ aw_mmcclk_set_freq(struct clknode *clk, uint64_t fin, uint64_t *fout,
 	} else if (*fout <= 52000000) {
 		parent_idx = CLK_SRC_SEL_PLL6;
 		ophase = 3;
-		phase = 5;
+		phase = 4;
 		n = 0;
 	} else
 		return (ERANGE);

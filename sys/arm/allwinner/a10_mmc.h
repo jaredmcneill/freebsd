@@ -47,6 +47,7 @@
 #define	A10_MMC_STAR		0x3C	/* Status Register */
 #define	A10_MMC_FWLR		0x40	/* FIFO Threshold Watermark Register */
 #define	A10_MMC_FUNS		0x44	/* Function Select Register */
+#define	A10_MMC_DBGC		0x50	/* Debug Register (not documented) */
 #define	A10_MMC_HWRST		0x78	/* Hardware reset (not documented) */
 #define	A10_MMC_DMAC		0x80	/* IDMAC Control Register */
 #define	A10_MMC_DLBA		0x84	/* IDMAC Desc List Base Address Reg */
@@ -62,8 +63,9 @@
 #define	A10_MMC_CTRL_INT_ENB		(1U << 4)
 #define	A10_MMC_CTRL_DMA_ENB		(1U << 5)
 #define	A10_MMC_CTRL_CD_DBC_ENB		(1U << 8)
-#define	A10_MMC_CTRL_DDR_MOD_SEL		(1U << 10)
-#define	A10_MMC_CTRL_FIFO_AC_MOD		(1U << 31)
+#define	A10_MMC_CTRL_DDR_MOD_SEL	(1U << 10)
+#define	A10_MMC_CTRL_ACCESS_DONE_DIRECT	(1U << 30)
+#define	A10_MMC_CTRL_FIFO_AC_MOD	(1U << 31)
 #define	A10_MMC_RESET					\
 	(A10_MMC_CTRL_SOFT_RST | A10_MMC_CTRL_FIFO_RST | A10_MMC_CTRL_DMA_RST)
 
