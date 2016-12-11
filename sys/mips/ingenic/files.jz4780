@@ -27,5 +27,6 @@ mips/ingenic/jz4780_mpboot.S	optional smp
 mips/ingenic/jz4780_gpio_if.m	standard
 
 # Video
+mips/ingenic/jz4780_lcd.c	optional vt
 dev/hdmi/dwc_hdmi.c		optional hdmi iic
 dev/hdmi/hdmi_if.m		standard
