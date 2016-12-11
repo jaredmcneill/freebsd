@@ -86,6 +86,8 @@ device		dme
 device		iic
 device		iicbus
 
+device		vt 
+device		kbdmux
 device		hdmi
 device		videomode
 
