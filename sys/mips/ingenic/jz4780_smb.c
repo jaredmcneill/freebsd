@@ -288,7 +288,6 @@ jzsmb_transfer_write(device_t dev, struct iic_msg *msg, int stop_hold)
 
 	getmicrouptime(&start);
 	for (resid = msg->len; resid > 0; resid--) {
-		device_printf(dev, "write byte %d/%d to %02x\n", resid - msg->len + 1, msg->len, msg->slave);
 		for (;;) {
 			getmicrouptime(&cur);
 			timersub(&cur, &start, &diff);
