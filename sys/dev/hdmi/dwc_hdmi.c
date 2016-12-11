@@ -639,22 +639,6 @@ dwc_hdmi_detect_cable(void *arg)
 	if ((stat & HDMI_IH_PHY_STAT0_HPD) != 0) {
 		EVENTHANDLER_INVOKE(hdmi_event, sc->sc_dev,
 		    HDMI_EVENT_CONNECTED);
-
-		/* XXX TEST */
-		
-		uint8_t *pedid = NULL;
-		uint32_t edid_len = 0;
-
-		int error = hdmi_edid_read(sc, &pedid, &edid_len);
-		if (error == 0) {
-			struct edid_info edid;
-			error = edid_parse(pedid, &edid);
-			if (error == 0)
-				edid_print(&edid);
-			else
-				printf("HDMI failed to parse EDID: %d\n", error);
-		} else
-			printf("HDMI failed to read EDID: %d\n", error);
 	}
 
 	/* Finished with the interrupt hook */
