@@ -65,7 +65,8 @@ __FBSDID("$FreeBSD$");
 #define	FB_DEFAULT_H	600
 #define	FB_DEFAULT_REF	60
 #define	FB_BPP		32
-#define	FB_ALIGN	16
+#define	FB_ALIGN	(16 * 4)
+#define	FB_MAX_BW	(1920 * 1080 * 60)
 
 #define	PCFG_MAGIC	0xc7ff2100
 
@@ -93,7 +94,17 @@ struct jzlcd_softc {
 	/* HDMI */
 	eventhandler_tag	hdmi_evh;
 
-	struct lcd_frame_descriptor	fdesc;
+	/* Frame descriptor DMA */
+	bus_dma_tag_t		fdesc_tag;
+	bus_dmamap_t		fdesc_map;
+	bus_addr_t		fdesc_paddr;
+	struct lcd_frame_descriptor	*fdesc;
+
+	/* FB DMA */
+	bus_dma_tag_t		fb_tag;
+	bus_dmamap_t		fb_map;
+	bus_addr_t		fb_paddr;
+	void			*fb;
 };
 
 static struct resource_spec jzlcd_spec[] = {
@@ -147,6 +158,19 @@ jzlcd_set_videomode(struct jzlcd_softc *sc, const struct videomode *mode)
 	vde = vds + mode->vdisplay;
 	vt = vde + vfp;
 
+	/* Setup frame descriptor */
+	sc->fdesc->next = sc->fdesc_paddr;
+	sc->fdesc->physaddr = sc->paddr;
+	sc->fdesc->id = 1;
+	sc->fdesc->cmd = mode->hdisplay * mode->vdisplay * FB_BPP;
+	sc->fdesc->offs = 0;
+	sc->fdesc->pw = 0;
+	sc->fdesc->cnum_pos = LCDPOS_BPP01_18_24;
+	sc->fdesc->dessize = LCDDESSIZE_ALPHA |
+	    ((mode->vdisplay - 1) << LCDDESSIZE_HEIGHT_SHIFT) |
+	    ((mode->hdisplay - 1) << LCDDESSIZE_WIDTH_SHIFT);
+	bus_dmamap_sync(sc->fdesc_tag, sc->fdesc_map, BUS_DMASYNC_PREWRITE);
+
 	/* Setup timings */
 	LCD_WRITE(sc, LCDVAT,
 	    (ht << LCDVAT_HT_SHIFT) | (vt << LCDVAT_VT_SHIFT));
@@ -164,17 +188,8 @@ jzlcd_set_videomode(struct jzlcd_softc *sc, const struct videomode *mode)
 	LCD_WRITE(sc, LCDPCFG, PCFG_MAGIC);
 	LCD_WRITE(sc, LCDRGBC, LCDRGBC_RGBFMT);
 
-	/* Setup frame descriptor */
-	sc->fdesc.next = sc->fdesc.physaddr = sc->paddr;
-	sc->fdesc.id = 0;
-	sc->fdesc.cmd = mode->hdisplay * mode->vdisplay * FB_BPP;
-	sc->fdesc.offs = 0;
-	sc->fdesc.pw = 0;
-	sc->fdesc.cnum_pos = LCDPOS_BPP01_18_24;
-	sc->fdesc.dessize = LCDDESSIZE_ALPHA |
-	    ((mode->vdisplay - 1) << LCDDESSIZE_HEIGHT_SHIFT) |
-	    ((mode->hdisplay - 1) << LCDDESSIZE_WIDTH_SHIFT);
-	LCD_WRITE(sc, LCDDA0, vtophys(&sc->fdesc));
+	/* Enable frame descriptor */
+	LCD_WRITE(sc, LCDDA0, sc->fdesc_paddr);
 
 	/* Set display clock */
 	error = clk_set_freq(sc->clk_pix, DOT_CLOCK_TO_HZ(mode->dot_clock), 0);
@@ -191,6 +206,29 @@ jzlcd_set_videomode(struct jzlcd_softc *sc, const struct videomode *mode)
 	ctrl |= LCDCTRL_ENA;
 	ctrl &= ~LCDCTRL_DIS;
 	LCD_WRITE(sc, LCDCTRL, ctrl);
+
+	/* XXX DEBUG */
+	DELAY(1000000);
+	device_printf(sc->dev, "descriptor at %08x\n", sc->fdesc_paddr);
+	device_printf(sc->dev, " LCDDA0:      %08x\n", LCD_READ(sc, LCDDA0));
+	device_printf(sc->dev, " LCDSA0:      %08x\n", LCD_READ(sc, LCDSA0));
+	device_printf(sc->dev, " LCDFID0:     %08x\n", LCD_READ(sc, LCDFID0));
+	device_printf(sc->dev, " LCDCMD0:     %08x\n", LCD_READ(sc, LCDCMD0));
+	device_printf(sc->dev, " LCDOFFS0:    %08x\n", LCD_READ(sc, LCDOFFS0));
+	device_printf(sc->dev, " LCDPW0:      %08x\n", LCD_READ(sc, LCDPW0));
+	device_printf(sc->dev, " LCDCPOS0:    %08x\n", LCD_READ(sc, LCDPOS0));
+	device_printf(sc->dev, " LCDDESSIZE0: %08x\n", LCD_READ(sc, LCDDESSIZE0));
+	device_printf(sc->dev, " -\n");
+	device_printf(sc->dev, " LCDVAT:      %08x\n", LCD_READ(sc, LCDVAT));
+	device_printf(sc->dev, " LCDDAH:      %08x\n", LCD_READ(sc, LCDDAH));
+	device_printf(sc->dev, " LCDDAV:      %08x\n", LCD_READ(sc, LCDDAV));
+	device_printf(sc->dev, " LCDHSYNC:    %08x\n", LCD_READ(sc, LCDHSYNC));
+	device_printf(sc->dev, " LCDVSYNC:    %08x\n", LCD_READ(sc, LCDVSYNC));
+	device_printf(sc->dev, " -\n");
+	device_printf(sc->dev, " LCDCFG:      %08x\n", LCD_READ(sc, LCDCFG));
+	device_printf(sc->dev, " LCDCTRL:     %08x\n", LCD_READ(sc, LCDCTRL));
+	device_printf(sc->dev, " LCDPCFG:     %08x\n", LCD_READ(sc, LCDPCFG));
+	device_printf(sc->dev, " LCDRGBC:     %08x\n", LCD_READ(sc, LCDRGBC));
 
 	return (0);
 }
@@ -287,7 +325,8 @@ jzlcd_hdmi_event(void *arg, device_t hdmi_dev)
 	}
 
 	/* If the preferred mode could not be determined, use the default */
-	if (mode == NULL)
+	//if (mode == NULL)
+	if (1)
 		mode = pick_mode_by_ref(FB_DEFAULT_W, FB_DEFAULT_H,
 		    FB_DEFAULT_REF);
 
@@ -313,6 +352,14 @@ jzlcd_hdmi_event(void *arg, device_t hdmi_dev)
 	HDMI_SET_VIDEOMODE(hdmi_dev, &hdmi_mode);
 }
 
+static void
+jzlcd_dmamap_cb(void *arg, bus_dma_segment_t *segs, int nseg, int error)
+{
+	if (error != 0)
+		return;
+	*(bus_addr_t *)arg = segs[0].ds_addr;
+}
+
 static int
 jzlcd_probe(device_t dev)
 {
@@ -330,6 +377,7 @@ static int
 jzlcd_attach(device_t dev)
 {
 	struct jzlcd_softc *sc;
+	int error;
 
 	sc = device_get_softc(dev);
 
@@ -347,6 +395,37 @@ jzlcd_attach(device_t dev)
 	}
 	if (clk_enable(sc->clk) != 0 || clk_enable(sc->clk_pix) != 0) {
 		device_printf(dev, "cannot enable clocks\n");
+		return (ENXIO);
+	}
+
+	error = bus_dma_tag_create(
+	    bus_get_dma_tag(dev),
+	    16, 0,
+	    BUS_SPACE_MAXADDR_32BIT,
+	    BUS_SPACE_MAXADDR,
+	    NULL, NULL,
+	    sizeof(struct lcd_frame_descriptor), 1,
+	    sizeof(struct lcd_frame_descriptor),
+	    0,
+	    NULL, NULL,
+	    &sc->fdesc_tag);
+	if (error != 0) {
+		device_printf(dev, "cannot create bus dma tag\n");
+		return (ENXIO);
+	}
+
+	error = bus_dmamem_alloc(sc->fdesc_tag, (void **)&sc->fdesc,
+	    BUS_DMA_NOCACHE | BUS_DMA_WAITOK | BUS_DMA_ZERO, &sc->fdesc_map);
+	if (error != 0) {
+		device_printf(dev, "cannot allocate dma descriptor\n");
+		return (ENXIO);
+	}
+
+	error = bus_dmamap_load(sc->fdesc_tag, sc->fdesc_map, sc->fdesc,
+	    sizeof(struct lcd_frame_descriptor), jzlcd_dmamap_cb,
+	    &sc->fdesc_paddr, 0);
+	if (error != 0) {
+		device_printf(dev, "cannot load dma map\n");
 		return (ENXIO);
 	}
 
