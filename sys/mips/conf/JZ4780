@@ -83,6 +83,12 @@ device		mmcsd
 
 device		dme
 
+device		iic
+device		iicbus
+
+device		hdmi
+device		videomode
+
 # USB support
 options 	USB_DEBUG	# enable debug msgs
 options 	USB_HOST_ALIGN=128 # L2 cache line size
