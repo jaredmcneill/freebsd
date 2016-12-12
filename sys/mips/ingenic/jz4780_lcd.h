@@ -153,6 +153,7 @@
 #define	  LCDPOS_BPP01_30	(7 << 27)
 #define	  LCDPOS_PREMULTI01	(1 << 26)
 #define	  LCDPOS_COEF_SLE01	(0x3 << 24)
+#define	  LCDPOS_COEF_BLE01_1	(1 << 24)
 #define	  LCDPOS_YPOS01		(0xfff << 12)
 #define	  LCDPOS_XPOS01		(0xfff << 0)
 #define	LCDDESSIZE0		0x006c

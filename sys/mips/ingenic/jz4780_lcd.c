@@ -141,7 +141,7 @@ jzlcd_set_videomode(struct jzlcd_softc *sc, const struct videomode *mode)
 	u_int hbp, hfp, hsw, vbp, vfp, vsw;
 	u_int hds, hde, ht, vds, vde, vt;
 	uint32_t ctrl;
-	int error;
+	int error, line_sz;
 
 	hbp = mode->htotal - mode->hsync_end;
 	hfp = mode->hsync_start - mode->hdisplay;
@@ -158,11 +158,14 @@ jzlcd_set_videomode(struct jzlcd_softc *sc, const struct videomode *mode)
 	vde = vds + mode->vdisplay;
 	vt = vde + vfp;
 
+	line_sz = (mode->hdisplay * FB_BPP) >> 3;
+	line_sz = (line_sz + 3) & ~4;
+
 	/* Setup frame descriptor */
 	sc->fdesc->next = sc->fdesc_paddr;
 	sc->fdesc->physaddr = sc->paddr;
 	sc->fdesc->id = 1;
-	sc->fdesc->cmd = LCDCMD_FRM_EN | sc->fbsize;
+	sc->fdesc->cmd = LCDCMD_FRM_EN | (line_sz * mode->vdisplay);
 	sc->fdesc->offs = 0;
 	sc->fdesc->pw = 0;
 	sc->fdesc->cnum_pos = LCDPOS_BPP01_18_24 |
@@ -326,8 +329,7 @@ jzlcd_hdmi_event(void *arg, device_t hdmi_dev)
 	}
 
 	/* If the preferred mode could not be determined, use the default */
-	//if (mode == NULL)
-	if (1)
+	if (mode == NULL)
 		mode = pick_mode_by_ref(FB_DEFAULT_W, FB_DEFAULT_H,
 		    FB_DEFAULT_REF);
 
