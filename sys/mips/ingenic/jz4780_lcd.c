@@ -162,10 +162,11 @@ jzlcd_set_videomode(struct jzlcd_softc *sc, const struct videomode *mode)
 	sc->fdesc->next = sc->fdesc_paddr;
 	sc->fdesc->physaddr = sc->paddr;
 	sc->fdesc->id = 1;
-	sc->fdesc->cmd = mode->hdisplay * mode->vdisplay * FB_BPP;
+	sc->fdesc->cmd = LCDCMD_FRM_EN | sc->fbsize;
 	sc->fdesc->offs = 0;
 	sc->fdesc->pw = 0;
-	sc->fdesc->cnum_pos = LCDPOS_BPP01_18_24;
+	sc->fdesc->cnum_pos = LCDPOS_BPP01_18_24 |
+	    LCDPOS_PREMULTI01 | LCDPOS_COEF_BLE01_1;
 	sc->fdesc->dessize = LCDDESSIZE_ALPHA |
 	    ((mode->vdisplay - 1) << LCDDESSIZE_HEIGHT_SHIFT) |
 	    ((mode->hdisplay - 1) << LCDDESSIZE_WIDTH_SHIFT);
