@@ -67,6 +67,7 @@ __FBSDID("$FreeBSD$");
 #define	FB_BPP		32
 #define	FB_ALIGN	(16 * 4)
 #define	FB_MAX_BW	(1920 * 1080 * 60)
+#define FB_DIVIDE(x, y)	(((x) + ((y) / 2)) / (y))
 
 #define	PCFG_MAGIC	0xc7ff2100
 
@@ -188,7 +189,10 @@ jzlcd_set_videomode(struct jzlcd_softc *sc, const struct videomode *mode)
 	/* Set configuration */
 	LCD_WRITE(sc, LCDCFG, LCDCFG_NEWDES | LCDCFG_RECOVER | LCDCFG_24 |
 	    LCDCFG_PSM | LCDCFG_CLSM | LCDCFG_SPLM | LCDCFG_REVM | LCDCFG_PCP);
-	LCD_WRITE(sc, LCDCTRL, LCDCTRL_BST_64 | LCDCTRL_OFUM);
+	ctrl = LCD_READ(sc, LCDCTRL);
+	ctrl &= ~LCDCTRL_BST;
+	ctrl |= LCDCTRL_BST_64 | LCDCTRL_OFUM;
+	LCD_WRITE(sc, LCDCTRL, ctrl);
 	LCD_WRITE(sc, LCDPCFG, PCFG_MAGIC);
 	LCD_WRITE(sc, LCDRGBC, LCDRGBC_RGBFMT);
 
@@ -297,6 +301,43 @@ jzlcd_configure(struct jzlcd_softc *sc, const struct videomode *mode)
 	return (0);
 }
 
+static int
+jzlcd_get_bandwidth(const struct videomode *mode)
+{
+	int refresh;
+
+	refresh = FB_DIVIDE(FB_DIVIDE(DOT_CLOCK_TO_HZ(mode->dot_clock),
+	    mode->htotal), mode->vtotal);
+
+	return mode->hdisplay * mode->vdisplay * refresh;
+}
+
+static const struct videomode *
+jzlcd_find_mode(struct edid_info *ei)
+{
+	const struct videomode *best;
+	int n, bw, best_bw;
+
+	/* If the preferred mode is OK, just use it */
+	if (jzlcd_get_bandwidth(ei->edid_preferred_mode) <= FB_MAX_BW)
+		return ei->edid_preferred_mode;
+
+	/* Find the highest bw mode */
+	best = NULL;
+	best_bw = 0;
+	for (n = 0; n < ei->edid_nmodes; n++) {
+		bw = jzlcd_get_bandwidth(&ei->edid_modes[n]);
+		if (bw > FB_MAX_BW)
+			continue;
+		if (best == NULL || bw > best_bw) {
+			best = &ei->edid_modes[n];
+			best_bw = bw;
+		}
+	}
+
+	return best;
+}
+
 static void
 jzlcd_hdmi_event(void *arg, device_t hdmi_dev)
 {
@@ -324,7 +365,8 @@ jzlcd_hdmi_event(void *arg, device_t hdmi_dev)
 		} else {
 			if (bootverbose)
 				edid_print(&ei);
-			mode = ei.edid_preferred_mode;
+
+			mode = jzlcd_find_mode(&ei);
 		}
 	}
 

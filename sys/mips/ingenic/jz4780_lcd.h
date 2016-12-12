@@ -92,6 +92,13 @@
 #define	  LCDCTRL_BPP0_30	(7 << 0)
 #define	 LCDCTR
 #define	LCDSTATE		0x0034
+#define	 LCDSTATE_QD		(1 << 7)
+#define	 LCDSTATE_EOF		(1 << 5)
+#define	 LCDSTATE_SOF		(1 << 4)
+#define	 LCDSTATE_OUT		(1 << 3)
+#define	 LCDSTATE_IFU0		(1 << 2)
+#define	 LCDSTATE_IFU1		(1 << 1)
+#define	 LCDSTATE_LDD		(1 << 0)
 #define	LCDOSDC			0x0100
 #define	LCDOSDCTRL		0x0104
 #define	LCDOSDS			0x0108
