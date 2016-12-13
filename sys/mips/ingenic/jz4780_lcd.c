@@ -100,12 +100,6 @@ struct jzlcd_softc {
 	bus_dmamap_t		fdesc_map;
 	bus_addr_t		fdesc_paddr;
 	struct lcd_frame_descriptor	*fdesc;
-
-	/* FB DMA */
-	bus_dma_tag_t		fb_tag;
-	bus_dmamap_t		fb_map;
-	bus_addr_t		fb_paddr;
-	void			*fb;
 };
 
 static struct resource_spec jzlcd_spec[] = {
@@ -127,6 +121,10 @@ jzlcd_allocfb(struct jzlcd_softc *sc)
 	}
 	sc->paddr = pmap_kextract(sc->vaddr);
 
+	uint32_t *p = (uint32_t *)sc->vaddr;
+	for (off_t n = 0; n < sc->fbsize; n += 4, p++)
+		*p = 0x0000ff00;
+
 	return (0);
 }
 
@@ -134,6 +132,34 @@ static void
 jzlcd_freefb(struct jzlcd_softc *sc)
 {
 	kmem_free(kernel_arena, sc->vaddr, sc->fbsize);
+}
+
+static void
+jzlcd_start(struct jzlcd_softc *sc)
+{
+	uint32_t ctrl;
+
+	LCD_WRITE(sc, LCDSTATE, 0);
+	LCD_WRITE(sc, LCDOSDS, 0);
+	ctrl = LCD_READ(sc, LCDCTRL);
+	ctrl |= LCDCTRL_ENA;
+	ctrl &= ~LCDCTRL_DIS;
+	LCD_WRITE(sc, LCDCTRL, ctrl);
+}
+
+static void
+jzlcd_stop(struct jzlcd_softc *sc)
+{
+	uint32_t ctrl;
+
+	ctrl = LCD_READ(sc, LCDCTRL);
+	if ((ctrl & LCDCTRL_ENA) != 0) {
+		ctrl |= LCDCTRL_DIS;
+		LCD_WRITE(sc, LCDCTRL, ctrl);
+		while ((LCD_READ(sc, LCDSTATE) & LCDSTATE_LDD) == 0)
+			DELAY(100);
+	}
+	LCD_WRITE(sc, LCDSTATE, LCD_READ(sc, LCDSTATE) & ~LCDSTATE_LDD);
 }
 
 static int
@@ -196,8 +222,14 @@ jzlcd_set_videomode(struct jzlcd_softc *sc, const struct videomode *mode)
 	LCD_WRITE(sc, LCDPCFG, PCFG_MAGIC);
 	LCD_WRITE(sc, LCDRGBC, LCDRGBC_RGBFMT);
 
+	/* Update registers */
+	LCD_WRITE(sc, LCDSTATE, 0);
+
 	/* Enable frame descriptor */
 	LCD_WRITE(sc, LCDDA0, sc->fdesc_paddr);
+
+	/* Stop the controller */
+	jzlcd_stop(sc);
 
 	/* Set display clock */
 	error = clk_set_freq(sc->clk_pix, DOT_CLOCK_TO_HZ(mode->dot_clock), 0);
@@ -207,16 +239,16 @@ jzlcd_set_videomode(struct jzlcd_softc *sc, const struct videomode *mode)
 		return (error);
 	}
 
+	uint64_t act_freq = 0;
+	clk_get_freq(sc->clk_pix, &act_freq);
+	device_printf(sc->dev, "Wanted: %u Hz\n", (unsigned int)DOT_CLOCK_TO_HZ(mode->dot_clock));
+	device_printf(sc->dev, "Actual: %u Hz\n", (unsigned int)act_freq);
+	
 	/* Start the controller! */
-	LCD_WRITE(sc, LCDSTATE, 0);
-	LCD_WRITE(sc, LCDOSDS, 0);
-	ctrl = LCD_READ(sc, LCDCTRL);
-	ctrl |= LCDCTRL_ENA;
-	ctrl &= ~LCDCTRL_DIS;
-	LCD_WRITE(sc, LCDCTRL, ctrl);
+	jzlcd_start(sc);
 
 	/* XXX DEBUG */
-	DELAY(1000000);
+	//DELAY(1000000);
 	device_printf(sc->dev, "descriptor at %08x\n", sc->fdesc_paddr);
 	device_printf(sc->dev, " LCDDA0:      %08x\n", LCD_READ(sc, LCDDA0));
 	device_printf(sc->dev, " LCDSA0:      %08x\n", LCD_READ(sc, LCDSA0));
@@ -276,6 +308,7 @@ jzlcd_configure(struct jzlcd_softc *sc, const struct videomode *mode)
 	if (error != 0)
 		return (error);
 
+if (0) {
 	/* Attach framebuffer device */
 	sc->info.fb_name = device_get_nameunit(sc->dev);
 	sc->info.fb_vbase = (intptr_t)sc->vaddr;
@@ -297,6 +330,7 @@ jzlcd_configure(struct jzlcd_softc *sc, const struct videomode *mode)
 		device_printf(sc->dev, "failed to attach fbd device\n");
 		return (error);
 	}
+}
 
 	return (0);
 }
@@ -322,10 +356,12 @@ jzlcd_find_mode(struct edid_info *ei)
 	if (jzlcd_get_bandwidth(ei->edid_preferred_mode) <= FB_MAX_BW)
 		return ei->edid_preferred_mode;
 
-	/* Find the highest bw mode */
+	/* Find the highest bw progressive scan mode */
 	best = NULL;
 	best_bw = 0;
 	for (n = 0; n < ei->edid_nmodes; n++) {
+		if ((ei->edid_modes[n].flags & VID_INTERLACE) != 0)
+			continue;
 		bw = jzlcd_get_bandwidth(&ei->edid_modes[n]);
 		if (bw > FB_MAX_BW)
 			continue;
