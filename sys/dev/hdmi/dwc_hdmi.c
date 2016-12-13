@@ -136,16 +136,16 @@ dwc_hdmi_av_composer(struct dwc_hdmi_softc *sc)
 {
 	uint8_t inv_val;
 	int is_dvi;
-	int hblank, vblank, hsync_len, hbp, vbp;
+	int hblank, vblank, hsync_len, hfp, vfp;
 
 	/* Set up HDMI_FC_INVIDCONF */
-	inv_val = ((sc->sc_mode.flags & VID_NVSYNC) ?
-		HDMI_FC_INVIDCONF_VSYNC_IN_POLARITY_ACTIVE_LOW :
-		HDMI_FC_INVIDCONF_VSYNC_IN_POLARITY_ACTIVE_HIGH);
+	inv_val = ((sc->sc_mode.flags & VID_PVSYNC) ?
+		HDMI_FC_INVIDCONF_VSYNC_IN_POLARITY_ACTIVE_HIGH :
+		HDMI_FC_INVIDCONF_VSYNC_IN_POLARITY_ACTIVE_LOW);
 
-	inv_val |= ((sc->sc_mode.flags & VID_NHSYNC) ?
-		HDMI_FC_INVIDCONF_HSYNC_IN_POLARITY_ACTIVE_LOW :
-		HDMI_FC_INVIDCONF_HSYNC_IN_POLARITY_ACTIVE_HIGH);
+	inv_val |= ((sc->sc_mode.flags & VID_PHSYNC) ?
+		HDMI_FC_INVIDCONF_HSYNC_IN_POLARITY_ACTIVE_HIGH :
+		HDMI_FC_INVIDCONF_HSYNC_IN_POLARITY_ACTIVE_LOW);
 
 	inv_val |= HDMI_FC_INVIDCONF_DE_IN_POLARITY_ACTIVE_HIGH;
 
@@ -183,13 +183,13 @@ dwc_hdmi_av_composer(struct dwc_hdmi_softc *sc)
 	WR1(sc, HDMI_FC_INVBLANK, vblank);
 
 	/* Set up HSYNC active edge delay width (in pixel clks) */
-	hbp = sc->sc_mode.htotal - sc->sc_mode.hsync_end;
-	WR1(sc, HDMI_FC_HSYNCINDELAY1, hbp >> 8);
-	WR1(sc, HDMI_FC_HSYNCINDELAY0, hbp);
+	hfp = sc->sc_mode.hsync_start - sc->sc_mode.hdisplay;
+	WR1(sc, HDMI_FC_HSYNCINDELAY1, hfp >> 8);
+	WR1(sc, HDMI_FC_HSYNCINDELAY0, hfp);
 
 	/* Set up VSYNC active edge delay (in pixel clks) */
-	vbp = sc->sc_mode.vtotal - sc->sc_mode.vsync_end;
-	WR1(sc, HDMI_FC_VSYNCINDELAY, vbp);
+	vfp = sc->sc_mode.vsync_start - sc->sc_mode.vdisplay;
+	WR1(sc, HDMI_FC_VSYNCINDELAY, vfp);
 
 	hsync_len = (sc->sc_mode.hsync_end - sc->sc_mode.hsync_start);
 	/* Set up HSYNC active pulse width (in pixel clks) */
@@ -289,7 +289,7 @@ dwc_hdmi_clear_overflow(struct dwc_hdmi_softc *sc)
 
 	val = RD1(sc, HDMI_FC_INVIDCONF);
 
-	for (count = 0 ; count < 5 ; count++)
+	for (count = 0 ; count < 4 ; count++)
 		WR1(sc, HDMI_FC_INVIDCONF, val);
 }
 
@@ -364,6 +364,7 @@ dwc_hdmi_phy_configure(struct dwc_hdmi_softc *sc)
 	/* RESISTANCE TERM 133 Ohm */
 	dwc_hdmi_phy_i2c_write(sc, TXTERM_133, HDMI_PHY_I2C_TXTERM);
 
+#if 0
 	/* REMOVE CLK TERM */
 	dwc_hdmi_phy_i2c_write(sc, CKCALCTRL_OVERRIDE, HDMI_PHY_I2C_CKCALCTRL);
 
@@ -378,6 +379,12 @@ dwc_hdmi_phy_configure(struct dwc_hdmi_softc *sc)
 		dwc_hdmi_phy_i2c_write(sc, VLEVCTRL_TX_LVL(13) | VLEVCTRL_CK_LVL(13),
 		    HDMI_PHY_I2C_VLEVCTRL);
 	}
+#else
+	dwc_hdmi_phy_i2c_write(sc, 0x800d, HDMI_PHY_I2C_CKSYMTXCTRL);
+	dwc_hdmi_phy_i2c_write(sc, 0x01ad, HDMI_PHY_I2C_VLEVCTRL);
+	/* REMOVE CLK TERM */
+	dwc_hdmi_phy_i2c_write(sc, CKCALCTRL_OVERRIDE, HDMI_PHY_I2C_CKCALCTRL);
+#endif
 
 	dwc_hdmi_phy_enable_power(sc, 1);
 
@@ -463,7 +470,7 @@ dwc_hdmi_video_packetize(struct dwc_hdmi_softc *sc)
 	uint8_t val;
 
 	output_select = HDMI_VP_CONF_OUTPUT_SELECTOR_BYPASS;
-	color_depth = 0;
+	color_depth = 4;
 
 	/* set the packetizer registers */
 	val = ((color_depth << HDMI_VP_PR_CD_COLOR_DEPTH_OFFSET) &
@@ -558,6 +565,32 @@ dwc_hdmi_video_sample(struct dwc_hdmi_softc *sc)
 	WR1(sc, HDMI_TX_BCBDATA1, 0x0);
 }
 
+static void
+dwc_hdmi_tx_hdcp_config(struct dwc_hdmi_softc *sc)
+{
+	uint8_t de, val;
+
+	de = HDMI_A_VIDPOLCFG_DATAENPOL_ACTIVE_HIGH;
+
+	/* Disable RX detect */
+	val = RD1(sc, HDMI_A_HDCPCFG0);
+	val &= ~HDMI_A_HDCPCFG0_RXDETECT_MASK;
+	val |= HDMI_A_HDCPCFG0_RXDETECT_DISABLE;
+	WR1(sc, HDMI_A_HDCPCFG0, val);
+
+	/* Set polarity */
+	val = RD1(sc, HDMI_A_VIDPOLCFG);
+	val &= ~HDMI_A_VIDPOLCFG_DATAENPOL_MASK;
+	val |= de;
+	WR1(sc, HDMI_A_VIDPOLCFG, val);
+
+	/* Disable encryption */
+	val = RD1(sc, HDMI_A_HDCPCFG1);
+	val &= ~HDMI_A_HDCPCFG1_ENCRYPTIONDISABLE_MASK;
+	val |= HDMI_A_HDCPCFG1_ENCRYPTIONDISABLE_DISABLE;
+	WR1(sc, HDMI_A_HDCPCFG1, val);
+}
+
 static int
 dwc_hdmi_set_mode(struct dwc_hdmi_softc *sc)
 {
@@ -570,6 +603,7 @@ dwc_hdmi_set_mode(struct dwc_hdmi_softc *sc)
 	dwc_hdmi_video_packetize(sc);
 	/* TODO:  dwc_hdmi_video_csc(sc); */
 	dwc_hdmi_video_sample(sc);
+	dwc_hdmi_tx_hdcp_config(sc);
 	dwc_hdmi_clear_overflow(sc);
 
 	return (0);
@@ -702,13 +736,17 @@ dwc_hdmi_attach(device_t dev)
 		goto out;
 	}
 	if (OF_getencprop(node, "clock-frequency", &freq, sizeof(freq)) > 0) {
-		err = clk_set_freq(sc->sc_clk_hdmi, freq, 0);
+		err = clk_set_freq(sc->sc_clk_hdmi, freq, CLK_SET_ROUND_DOWN);
 		if (err != 0) {
 			device_printf(dev,
 			    "Cannot set HDMI clock frequency to %u Hz\n", freq);
 			goto out;
 		}
-		device_printf(dev, "HDMI clock frequency %u Hz\n", freq);
+		if (bootverbose) {
+			uint64_t act_freq = 0;
+			clk_get_freq(sc->sc_clk_hdmi, &act_freq);
+			device_printf(dev, "HDMI clock frequency %u Hz (%u Hz)\n", freq, (unsigned int)act_freq);
+		}
 	} else
 		device_printf(dev, "HDMI clock frequency not specified\n");
 	if (clk_enable(sc->sc_clk_hdmi) != 0) {
@@ -774,6 +812,7 @@ dwc_hdmi_set_videomode(device_t dev, const struct videomode *mode)
 
 	sc = device_get_softc(dev);
 	memcpy(&sc->sc_mode, mode, sizeof(*mode));
+
 	dwc_hdmi_set_mode(sc);
 
 	return (0);
