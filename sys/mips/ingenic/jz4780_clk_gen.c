@@ -161,7 +161,8 @@ jz4780_clk_gen_set_freq(struct clknode *clk, uint64_t fin,
 	/* Find closest divider */
 	div_l = howmany(fin, *fout);
 	div_h = fin / *fout;
-	divider = abs(div_l * fin) < abs(div_h * fin) ? div_l : div_h;
+	divider = abs((int64_t)*fout - (fin / div_l)) <
+	    abs((int64_t)*fout - (fin / div_h)) ? div_l : div_h;
 
 	/* Adjust for divider multiplier */
 	div_reg = divider >> sc->clk_descr->clk_div.div_lg;
