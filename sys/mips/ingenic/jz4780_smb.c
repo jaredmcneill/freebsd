@@ -73,17 +73,14 @@ __FBSDID("$FreeBSD$");
 #define	JZSMB_LCNT_BASE			1
 #define	JZSMB_LCNT_MIN			8
 
-#ifndef timersub
-#define timersub(tvp, uvp, vvp)                                         \
-        do {                                                            \
-                (vvp)->tv_sec = (tvp)->tv_sec - (uvp)->tv_sec;          \
-                (vvp)->tv_usec = (tvp)->tv_usec - (uvp)->tv_usec;       \
-                if ((vvp)->tv_usec < 0) {                               \
-                        (vvp)->tv_sec--;                                \
-                        (vvp)->tv_usec += 1000000;                      \
-                }                                                       \
-        } while (0)
-#endif
+static inline int
+tstohz(const struct timespec *tsp)
+{
+	struct timeval tv;
+
+	TIMESPEC_TO_TIMEVAL(&tv, tsp);
+	return (tvtohz(&tv));
+}
 
 static struct ofw_compat_data compat_data[] = {
 	{ "ingenic,jz4780-i2c",		1 },
@@ -139,7 +136,7 @@ jzsmb_enable(struct jzsmb_softc *sc, int enable)
 }
 
 static int
-jzsmb_reset_locked(device_t dev, u_char speed, u_char addr, u_char *oldaddr)
+jzsmb_reset_locked(device_t dev, u_char addr)
 {
 	struct jzsmb_softc *sc;
 	uint16_t con;
@@ -222,7 +219,7 @@ jzsmb_reset(device_t dev, u_char speed, u_char addr, u_char *oldaddr)
 	sc = device_get_softc(dev);
 
 	SMB_LOCK(sc);
-	error = jzsmb_reset_locked(dev, speed, addr, oldaddr);
+	error = jzsmb_reset_locked(dev, addr);
 	SMB_UNLOCK(sc);
 
 	return (error);
@@ -232,7 +229,7 @@ static int
 jzsmb_transfer_read(device_t dev, struct iic_msg *msg)
 {
 	struct jzsmb_softc *sc;
-	struct timeval start, cur, diff;
+	struct timespec start, diff;
 	uint16_t con, resid;
 	int timeo;
 
@@ -245,13 +242,13 @@ jzsmb_transfer_read(device_t dev, struct iic_msg *msg)
 	con |= SMBCON_STPHLD;
 	SMB_WRITE(sc, SMBCON, con);
 
-	getmicrouptime(&start);
+	getnanouptime(&start);
 	for (resid = msg->len; resid > 0; resid--) {
 		for (int i = 0; i < min(resid, 8); i++)
 			SMB_WRITE(sc, SMBDC, SMBDC_CMD);
 		for (;;) {
-			getmicrouptime(&cur);
-			timersub(&cur, &start, &diff);
+			getnanouptime(&diff);
+			timespecsub(&diff, &start);
 			if ((SMB_READ(sc, SMBST) & SMBST_RFNE) != 0) {
 				msg->buf[msg->len - resid] =
 				    SMB_READ(sc, SMBDC) & SMBDC_DAT;
@@ -259,7 +256,7 @@ jzsmb_transfer_read(device_t dev, struct iic_msg *msg)
 			} else
 				DELAY(1000);
 
-			if (tvtohz(&diff) >= timeo) {
+			if (tstohz(&diff) >= timeo) {
 				device_printf(dev,
 				    "read timeout (status=0x%02x)\n",
 				    SMB_READ(sc, SMBST));
@@ -279,7 +276,7 @@ static int
 jzsmb_transfer_write(device_t dev, struct iic_msg *msg, int stop_hold)
 {
 	struct jzsmb_softc *sc;
-	struct timeval start, cur, diff;
+	struct timespec start, diff;
 	uint16_t con, resid;
 	int timeo;
 
@@ -292,11 +289,11 @@ jzsmb_transfer_write(device_t dev, struct iic_msg *msg, int stop_hold)
 	con |= SMBCON_STPHLD;
 	SMB_WRITE(sc, SMBCON, con);
 
-	getmicrouptime(&start);
+	getnanouptime(&start);
 	for (resid = msg->len; resid > 0; resid--) {
 		for (;;) {
-			getmicrouptime(&cur);
-			timersub(&cur, &start, &diff);
+			getnanouptime(&diff);
+			timespecsub(&diff, &start);
 			if ((SMB_READ(sc, SMBST) & SMBST_TFNF) != 0) {
 				SMB_WRITE(sc, SMBDC,
 				    msg->buf[msg->len - resid]);
@@ -304,7 +301,7 @@ jzsmb_transfer_write(device_t dev, struct iic_msg *msg, int stop_hold)
 			} else
 				DELAY((1000 * hz) / JZSMB_TIMEOUT);
 
-			if (tvtohz(&diff) >= timeo) {
+			if (tstohz(&diff) >= timeo) {
 				device_printf(dev,
 				    "write timeout (status=0x%02x)\n",
 				    SMB_READ(sc, SMBST));
@@ -341,8 +338,7 @@ jzsmb_transfer(device_t dev, struct iic_msg *msgs, uint32_t nmsgs)
 	for (n = 0; n < nmsgs; n++) {
 		/* Set target address */
 		if (n == 0 || msgs[n].slave != msgs[n - 1].slave)
-			jzsmb_reset_locked(dev, sc->i2c_freq,
-			    msgs[n].slave, NULL);
+			jzsmb_reset_locked(dev, msgs[n].slave);
 
 		/* Set read or write */
 		if ((msgs[n].flags & IIC_M_RD) != 0)
