@@ -121,10 +121,6 @@ jzlcd_allocfb(struct jzlcd_softc *sc)
 	}
 	sc->paddr = pmap_kextract(sc->vaddr);
 
-	uint32_t *p = (uint32_t *)sc->vaddr;
-	for (off_t n = 0; n < sc->fbsize; n += 4, p++)
-		*p = 0x0000ff00;
-
 	return (0);
 }
 
@@ -145,6 +141,47 @@ jzlcd_start(struct jzlcd_softc *sc)
 	ctrl |= LCDCTRL_ENA;
 	ctrl &= ~LCDCTRL_DIS;
 	LCD_WRITE(sc, LCDCTRL, ctrl);
+
+#ifdef JZLCD_DEBUG
+	device_printf(sc->dev, "descriptor at %08x\n", sc->fdesc_paddr);
+	device_printf(sc->dev, " LCDDA0:      %08x\n", LCD_READ(sc, LCDDA0));
+	device_printf(sc->dev, " LCDSA0:      %08x\n", LCD_READ(sc, LCDSA0));
+	device_printf(sc->dev, " LCDFID0:     %08x\n", LCD_READ(sc, LCDFID0));
+	device_printf(sc->dev, " LCDCMD0:     %08x\n", LCD_READ(sc, LCDCMD0));
+	device_printf(sc->dev, " LCDOFFS0:    %08x\n", LCD_READ(sc, LCDOFFS0));
+	device_printf(sc->dev, " LCDPW0:      %08x\n", LCD_READ(sc, LCDPW0));
+	device_printf(sc->dev, " LCDCPOS0:    %08x\n", LCD_READ(sc, LCDPOS0));
+	device_printf(sc->dev, " LCDDESSIZE0: %08x\n", LCD_READ(sc, LCDDESSIZE0));
+	device_printf(sc->dev, " -\n");
+	device_printf(sc->dev, " LCDDA1:      %08x\n", LCD_READ(sc, LCDDA1));
+	device_printf(sc->dev, " LCDSA1:      %08x\n", LCD_READ(sc, LCDSA1));
+	device_printf(sc->dev, " LCDFID1:     %08x\n", LCD_READ(sc, LCDFID1));
+	device_printf(sc->dev, " LCDCMD1:     %08x\n", LCD_READ(sc, LCDCMD1));
+	device_printf(sc->dev, " LCDOFFS1:    %08x\n", LCD_READ(sc, LCDOFFS1));
+	device_printf(sc->dev, " LCDPW1:      %08x\n", LCD_READ(sc, LCDPW1));
+	device_printf(sc->dev, " LCDCPOS1:    %08x\n", LCD_READ(sc, LCDPOS1));
+	device_printf(sc->dev, " LCDDESSIZE1: %08x\n", LCD_READ(sc, LCDDESSIZE1));
+	device_printf(sc->dev, " -\n");
+	device_printf(sc->dev, " LCDVAT:      %08x\n", LCD_READ(sc, LCDVAT));
+	device_printf(sc->dev, " LCDDAH:      %08x\n", LCD_READ(sc, LCDDAH));
+	device_printf(sc->dev, " LCDDAV:      %08x\n", LCD_READ(sc, LCDDAV));
+	device_printf(sc->dev, " LCDHSYNC:    %08x\n", LCD_READ(sc, LCDHSYNC));
+	device_printf(sc->dev, " LCDVSYNC:    %08x\n", LCD_READ(sc, LCDVSYNC));
+	device_printf(sc->dev, " LCDXYP0:     %08x\n", LCD_READ(sc, LCDXYP0));
+	device_printf(sc->dev, " LCDXYP1:     %08x\n", LCD_READ(sc, LCDXYP1));
+	device_printf(sc->dev, " LCDSIZE0:    %08x\n", LCD_READ(sc, LCDSIZE0));
+	device_printf(sc->dev, " LCDSIZE1:    %08x\n", LCD_READ(sc, LCDSIZE1));
+	device_printf(sc->dev, " -\n");
+	device_printf(sc->dev, " LCDCFG:      %08x\n", LCD_READ(sc, LCDCFG));
+	device_printf(sc->dev, " LCDCTRL:     %08x\n", LCD_READ(sc, LCDCTRL));
+	device_printf(sc->dev, " LCDPCFG:     %08x\n", LCD_READ(sc, LCDPCFG));
+	device_printf(sc->dev, " LCDRGBC:     %08x\n", LCD_READ(sc, LCDRGBC));
+	device_printf(sc->dev, " -\n");
+	device_printf(sc->dev, " LCDOSDC:     %08x\n", LCD_READ(sc, LCDOSDC));
+	device_printf(sc->dev, " LCDOSDCTRL:  %08x\n", LCD_READ(sc, LCDOSDCTRL));
+	device_printf(sc->dev, " LCDOSDS:     %08x\n", LCD_READ(sc, LCDOSDS));
+	device_printf(sc->dev, " LCDSTATE:    %08x\n", LCD_READ(sc, LCDSTATE));
+#endif
 }
 
 static void
@@ -162,13 +199,40 @@ jzlcd_stop(struct jzlcd_softc *sc)
 	LCD_WRITE(sc, LCDSTATE, LCD_READ(sc, LCDSTATE) & ~LCDSTATE_LDD);
 }
 
+static void
+jzlcd_setup_descriptor(struct jzlcd_softc *sc, const struct videomode *mode, u_int desno)
+{
+	struct lcd_frame_descriptor *fdesc;
+	int line_sz;
+
+	line_sz = (mode->hdisplay * FB_BPP) >> 3;
+	line_sz = ((line_sz + 3) & ~3) / 4;
+
+	fdesc = sc->fdesc + desno;
+
+	if (desno == 0)
+		fdesc->next = sc->fdesc_paddr + sizeof(struct lcd_frame_descriptor);
+	else
+		fdesc->next = sc->fdesc_paddr;
+	fdesc->physaddr = sc->paddr;
+	fdesc->id = desno;
+	fdesc->cmd = LCDCMD_FRM_EN | (line_sz * mode->vdisplay);
+	fdesc->offs = 0;
+	fdesc->pw = 0;
+	fdesc->cnum_pos = LCDPOS_BPP01_18_24 |
+	    LCDPOS_PREMULTI01 | (desno == 0 ? LCDPOS_COEF_BLE01_1 : LCDPOS_COEF_SLE01);
+	fdesc->dessize = LCDDESSIZE_ALPHA |
+	    ((mode->vdisplay - 1) << LCDDESSIZE_HEIGHT_SHIFT) |
+	    ((mode->hdisplay - 1) << LCDDESSIZE_WIDTH_SHIFT);
+}
+
 static int
 jzlcd_set_videomode(struct jzlcd_softc *sc, const struct videomode *mode)
 {
 	u_int hbp, hfp, hsw, vbp, vfp, vsw;
 	u_int hds, hde, ht, vds, vde, vt;
 	uint32_t ctrl;
-	int error, line_sz;
+	int error;
 
 	hbp = mode->htotal - mode->hsync_end;
 	hfp = mode->hsync_start - mode->hdisplay;
@@ -184,23 +248,6 @@ jzlcd_set_videomode(struct jzlcd_softc *sc, const struct videomode *mode)
 	vds = vsw + vbp;
 	vde = vds + mode->vdisplay;
 	vt = vde + vfp;
-
-	line_sz = (mode->hdisplay * FB_BPP) >> 3;
-	line_sz = (line_sz + 3) & ~4;
-
-	/* Setup frame descriptor */
-	sc->fdesc->next = sc->fdesc_paddr;
-	sc->fdesc->physaddr = sc->paddr;
-	sc->fdesc->id = 1;
-	sc->fdesc->cmd = LCDCMD_FRM_EN | (line_sz * mode->vdisplay);
-	sc->fdesc->offs = 0;
-	sc->fdesc->pw = 0;
-	sc->fdesc->cnum_pos = LCDPOS_BPP01_18_24 |
-	    LCDPOS_PREMULTI01 | LCDPOS_COEF_BLE01_1;
-	sc->fdesc->dessize = LCDDESSIZE_ALPHA |
-	    ((mode->vdisplay - 1) << LCDDESSIZE_HEIGHT_SHIFT) |
-	    ((mode->hdisplay - 1) << LCDDESSIZE_WIDTH_SHIFT);
-	bus_dmamap_sync(sc->fdesc_tag, sc->fdesc_map, BUS_DMASYNC_PREWRITE);
 
 	/* Setup timings */
 	LCD_WRITE(sc, LCDVAT,
@@ -225,11 +272,14 @@ jzlcd_set_videomode(struct jzlcd_softc *sc, const struct videomode *mode)
 	/* Update registers */
 	LCD_WRITE(sc, LCDSTATE, 0);
 
-	/* Enable frame descriptor */
-	LCD_WRITE(sc, LCDDA0, sc->fdesc_paddr);
+	/* Setup frame descriptors */
+	jzlcd_setup_descriptor(sc, mode, 0);
+	jzlcd_setup_descriptor(sc, mode, 1);
+	bus_dmamap_sync(sc->fdesc_tag, sc->fdesc_map, BUS_DMASYNC_PREWRITE);
 
-	/* Stop the controller */
-	jzlcd_stop(sc);
+	/* Setup DMA channels */
+	LCD_WRITE(sc, LCDDA0, sc->fdesc_paddr + sizeof(struct lcd_frame_descriptor));
+	LCD_WRITE(sc, LCDDA1, sc->fdesc_paddr);
 
 	/* Set display clock */
 	error = clk_set_freq(sc->clk_pix, DOT_CLOCK_TO_HZ(mode->dot_clock), 0);
@@ -241,35 +291,7 @@ jzlcd_set_videomode(struct jzlcd_softc *sc, const struct videomode *mode)
 
 	uint64_t act_freq = 0;
 	clk_get_freq(sc->clk_pix, &act_freq);
-	device_printf(sc->dev, "Wanted: %u Hz\n", (unsigned int)DOT_CLOCK_TO_HZ(mode->dot_clock));
-	device_printf(sc->dev, "Actual: %u Hz\n", (unsigned int)act_freq);
 	
-	/* Start the controller! */
-	jzlcd_start(sc);
-
-	/* XXX DEBUG */
-	//DELAY(1000000);
-	device_printf(sc->dev, "descriptor at %08x\n", sc->fdesc_paddr);
-	device_printf(sc->dev, " LCDDA0:      %08x\n", LCD_READ(sc, LCDDA0));
-	device_printf(sc->dev, " LCDSA0:      %08x\n", LCD_READ(sc, LCDSA0));
-	device_printf(sc->dev, " LCDFID0:     %08x\n", LCD_READ(sc, LCDFID0));
-	device_printf(sc->dev, " LCDCMD0:     %08x\n", LCD_READ(sc, LCDCMD0));
-	device_printf(sc->dev, " LCDOFFS0:    %08x\n", LCD_READ(sc, LCDOFFS0));
-	device_printf(sc->dev, " LCDPW0:      %08x\n", LCD_READ(sc, LCDPW0));
-	device_printf(sc->dev, " LCDCPOS0:    %08x\n", LCD_READ(sc, LCDPOS0));
-	device_printf(sc->dev, " LCDDESSIZE0: %08x\n", LCD_READ(sc, LCDDESSIZE0));
-	device_printf(sc->dev, " -\n");
-	device_printf(sc->dev, " LCDVAT:      %08x\n", LCD_READ(sc, LCDVAT));
-	device_printf(sc->dev, " LCDDAH:      %08x\n", LCD_READ(sc, LCDDAH));
-	device_printf(sc->dev, " LCDDAV:      %08x\n", LCD_READ(sc, LCDDAV));
-	device_printf(sc->dev, " LCDHSYNC:    %08x\n", LCD_READ(sc, LCDHSYNC));
-	device_printf(sc->dev, " LCDVSYNC:    %08x\n", LCD_READ(sc, LCDVSYNC));
-	device_printf(sc->dev, " -\n");
-	device_printf(sc->dev, " LCDCFG:      %08x\n", LCD_READ(sc, LCDCFG));
-	device_printf(sc->dev, " LCDCTRL:     %08x\n", LCD_READ(sc, LCDCTRL));
-	device_printf(sc->dev, " LCDPCFG:     %08x\n", LCD_READ(sc, LCDPCFG));
-	device_printf(sc->dev, " LCDRGBC:     %08x\n", LCD_READ(sc, LCDRGBC));
-
 	return (0);
 }
 
@@ -308,7 +330,6 @@ jzlcd_configure(struct jzlcd_softc *sc, const struct videomode *mode)
 	if (error != 0)
 		return (error);
 
-if (0) {
 	/* Attach framebuffer device */
 	sc->info.fb_name = device_get_nameunit(sc->dev);
 	sc->info.fb_vbase = (intptr_t)sc->vaddr;
@@ -330,7 +351,6 @@ if (0) {
 		device_printf(sc->dev, "failed to attach fbd device\n");
 		return (error);
 	}
-}
 
 	return (0);
 }
@@ -420,6 +440,9 @@ jzlcd_hdmi_event(void *arg, device_t hdmi_dev)
 		device_printf(sc->dev, "using %dx%d\n",
 		    mode->hdisplay, mode->vdisplay);
 
+	/* Stop the controller */
+	jzlcd_stop(sc);
+
 	/* Configure LCD controller */
 	error = jzlcd_configure(sc, mode);
 	if (error != 0) {
@@ -428,9 +451,10 @@ jzlcd_hdmi_event(void *arg, device_t hdmi_dev)
 	}
 
 	hdmi_mode = *mode;
-	hdmi_mode.hskew = mode->hsync_end - mode->hsync_start;
-	hdmi_mode.flags |= VID_HSKEW;
 	HDMI_SET_VIDEOMODE(hdmi_dev, &hdmi_mode);
+
+	/* Start the controller! */
+	jzlcd_start(sc);
 }
 
 static void
@@ -481,12 +505,12 @@ jzlcd_attach(device_t dev)
 
 	error = bus_dma_tag_create(
 	    bus_get_dma_tag(dev),
-	    16, 0,
+	    sizeof(struct lcd_frame_descriptor), 0,
 	    BUS_SPACE_MAXADDR_32BIT,
 	    BUS_SPACE_MAXADDR,
 	    NULL, NULL,
-	    sizeof(struct lcd_frame_descriptor), 1,
-	    sizeof(struct lcd_frame_descriptor),
+	    sizeof(struct lcd_frame_descriptor) * 2, 1,
+	    sizeof(struct lcd_frame_descriptor) * 2,
 	    0,
 	    NULL, NULL,
 	    &sc->fdesc_tag);
@@ -503,7 +527,7 @@ jzlcd_attach(device_t dev)
 	}
 
 	error = bus_dmamap_load(sc->fdesc_tag, sc->fdesc_map, sc->fdesc,
-	    sizeof(struct lcd_frame_descriptor), jzlcd_dmamap_cb,
+	    sizeof(struct lcd_frame_descriptor) * 2, jzlcd_dmamap_cb,
 	    &sc->fdesc_paddr, 0);
 	if (error != 0) {
 		device_printf(dev, "cannot load dma map\n");

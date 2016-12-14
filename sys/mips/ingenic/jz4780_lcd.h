@@ -199,6 +199,6 @@ struct lcd_frame_descriptor {
 	uint32_t	pw;
 	uint32_t	cnum_pos;
 	uint32_t	dessize;
-} __attribute__((__packed__, __aligned__(16)));
+} __packed;
 
 #endif /* !__JZ4780_LCD_H__ */
