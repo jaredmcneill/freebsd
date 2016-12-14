@@ -54,7 +54,24 @@ __FBSDID("$FreeBSD$");
 
 #include "iicbus_if.h"
 
-#define	JZSMB_TIMEOUT	(300UL * hz / 1000)
+#define	JZSMB_TIMEOUT			((300UL * hz) / 1000)
+
+#define	JZSMB_SPEED_STANDARD		100000
+#define	JZSMB_SETUP_TIME_STANDARD	300
+#define	JZSMB_HOLD_TIME_STANDARD	400
+#define	JZSMB_PERIOD_MIN_STANDARD	4000
+#define	JZSMB_PERIOD_MAX_STANDARD	4700
+
+#define	JZSMB_SPEED_FAST		400000
+#define	JZSMB_SETUP_TIME_FAST		450
+#define	JZSMB_HOLD_TIME_FAST		450
+#define	JZSMB_PERIOD_MIN_FAST		600
+#define	JZSMB_PERIOD_MAX_FAST		1300
+
+#define	JZSMB_HCNT_BASE			8
+#define	JZSMB_HCNT_MIN			6
+#define	JZSMB_LCNT_BASE			1
+#define	JZSMB_LCNT_MIN			8
 
 #ifndef timersub
 #define timersub(tvp, uvp, vvp)                                         \
@@ -145,34 +162,28 @@ jzsmb_reset_locked(device_t dev, u_char speed, u_char addr, u_char *oldaddr)
 	period = sc->bus_freq / sc->i2c_freq;
 	con = SMBCON_REST | SMBCON_SLVDIS | SMBCON_MD;
 	switch (sc->i2c_freq) {
-	case 100000:
+	case JZSMB_SPEED_STANDARD:
 		con |= SMBCON_SPD_STANDARD;
-		setup_time = 300;
-		hold_time = 400;
-		hcnt = (period * 4000) / (4700 + 4000);
+		setup_time = JZSMB_SETUP_TIME_STANDARD;
+		hold_time = JZSMB_HOLD_TIME_STANDARD;
+		hcnt = (period * JZSMB_PERIOD_MIN_STANDARD) /
+		    (JZSMB_PERIOD_MAX_STANDARD + JZSMB_PERIOD_MIN_STANDARD);
 		lcnt = period - hcnt;
-		hcnt -= 8;
-		if (hcnt < 6)
-			hcnt = 6;
-		lcnt -= 1;
-		if (lcnt < 8)
-			lcnt = 8;
+		hcnt = MAX(hcnt - JZSMB_HCNT_BASE, JZSMB_HCNT_MIN);
+		lcnt = MAX(lcnt - JZSMB_LCNT_BASE, JZSMB_LCNT_MIN);
 		SMB_WRITE(sc, SMBCON, con);
 		SMB_WRITE(sc, SMBSHCNT, hcnt);
 		SMB_WRITE(sc, SMBSLCNT, lcnt);
 		break;
-	case 400000:
+	case JZSMB_SPEED_FAST:
 		con |= SMBCON_SPD_FAST;
-		setup_time = 450;
-		hold_time = 450;
-		hcnt = (period * 600) / (1300 + 600);
+		setup_time = JZSMB_SETUP_TIME_FAST;
+		hold_time = JZSMB_HOLD_TIME_FAST;
+		hcnt = (period * JZSMB_PERIOD_MIN_FAST) /
+		    (JZSMB_PERIOD_MAX_FAST + JZSMB_PERIOD_MIN_FAST);
 		lcnt = period - hcnt;
-		hcnt -= 8;
-		if (hcnt < 6)
-			hcnt = 6;
-		lcnt -= 1;
-		if (lcnt < 8)
-			lcnt = 8;
+		hcnt = MAX(hcnt - JZSMB_HCNT_BASE, JZSMB_HCNT_MIN);
+		lcnt = MAX(lcnt - JZSMB_LCNT_BASE, JZSMB_LCNT_MIN);
 		SMB_WRITE(sc, SMBCON, con);
 		SMB_WRITE(sc, SMBFHCNT, hcnt);
 		SMB_WRITE(sc, SMBFLCNT, lcnt);
@@ -182,16 +193,11 @@ jzsmb_reset_locked(device_t dev, u_char speed, u_char addr, u_char *oldaddr)
 	}
 
 	setup_time = ((setup_time * sc->bus_freq / 1000) / 1000000) + 1;
-	if (setup_time > 255)
-		setup_time = 255;
-	if (setup_time <= 0)
-		setup_time = 1;
+	setup_time = MIN(1, MAX(255, setup_time));
 	SMB_WRITE(sc, SMBSDASU, setup_time);
 
 	hold_time = ((hold_time * sc->bus_freq / 1000) / 1000000) - 1;
-	if (hold_time > 255)
-		hold_time = 255;
-
+	hold_time = MAX(255, hold_time);
 	if (hold_time >= 0)
 		SMB_WRITE(sc, SMBSDAHD, hold_time | SMBSDAHD_HDENB);
 	else
@@ -255,8 +261,8 @@ jzsmb_transfer_read(device_t dev, struct iic_msg *msg)
 
 			if (tvtohz(&diff) >= timeo) {
 				device_printf(dev,
-				    "read timeout (slave=0x%02x, flags=0x%02x, status=0x%02x)\n",
-				    msg->slave, msg->flags, SMB_READ(sc, SMBST));
+				    "read timeout (status=0x%02x)\n",
+				    SMB_READ(sc, SMBST));
 				return (EIO);
 			}
 		}
@@ -300,8 +306,8 @@ jzsmb_transfer_write(device_t dev, struct iic_msg *msg, int stop_hold)
 
 			if (tvtohz(&diff) >= timeo) {
 				device_printf(dev,
-				    "write timeout (slave=0x%02x, flags=0x%02x, status=0x%02x)\n",
-				    msg->slave, msg->flags, SMB_READ(sc, SMBST));
+				    "write timeout (status=0x%02x)\n",
+				    SMB_READ(sc, SMBST));
 				return (EIO);
 			}
 		}
