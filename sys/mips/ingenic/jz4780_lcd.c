@@ -67,6 +67,8 @@ __FBSDID("$FreeBSD$");
 #define	FB_BPP		32
 #define	FB_ALIGN	(16 * 4)
 #define	FB_MAX_BW	(1920 * 1080 * 60)
+#define	FB_MAX_W	2048
+#define	FB_MAX_H	2048
 #define FB_DIVIDE(x, y)	(((x) + ((y) / 2)) / (y))
 
 #define	PCFG_MAGIC	0xc7ff2100
@@ -135,53 +137,14 @@ jzlcd_start(struct jzlcd_softc *sc)
 {
 	uint32_t ctrl;
 
+	/* Clear status registers */
 	LCD_WRITE(sc, LCDSTATE, 0);
 	LCD_WRITE(sc, LCDOSDS, 0);
+	/* Enable the controller */
 	ctrl = LCD_READ(sc, LCDCTRL);
 	ctrl |= LCDCTRL_ENA;
 	ctrl &= ~LCDCTRL_DIS;
 	LCD_WRITE(sc, LCDCTRL, ctrl);
-
-#ifdef JZLCD_DEBUG
-	device_printf(sc->dev, "descriptor at %08x\n", sc->fdesc_paddr);
-	device_printf(sc->dev, " LCDDA0:      %08x\n", LCD_READ(sc, LCDDA0));
-	device_printf(sc->dev, " LCDSA0:      %08x\n", LCD_READ(sc, LCDSA0));
-	device_printf(sc->dev, " LCDFID0:     %08x\n", LCD_READ(sc, LCDFID0));
-	device_printf(sc->dev, " LCDCMD0:     %08x\n", LCD_READ(sc, LCDCMD0));
-	device_printf(sc->dev, " LCDOFFS0:    %08x\n", LCD_READ(sc, LCDOFFS0));
-	device_printf(sc->dev, " LCDPW0:      %08x\n", LCD_READ(sc, LCDPW0));
-	device_printf(sc->dev, " LCDCPOS0:    %08x\n", LCD_READ(sc, LCDPOS0));
-	device_printf(sc->dev, " LCDDESSIZE0: %08x\n", LCD_READ(sc, LCDDESSIZE0));
-	device_printf(sc->dev, " -\n");
-	device_printf(sc->dev, " LCDDA1:      %08x\n", LCD_READ(sc, LCDDA1));
-	device_printf(sc->dev, " LCDSA1:      %08x\n", LCD_READ(sc, LCDSA1));
-	device_printf(sc->dev, " LCDFID1:     %08x\n", LCD_READ(sc, LCDFID1));
-	device_printf(sc->dev, " LCDCMD1:     %08x\n", LCD_READ(sc, LCDCMD1));
-	device_printf(sc->dev, " LCDOFFS1:    %08x\n", LCD_READ(sc, LCDOFFS1));
-	device_printf(sc->dev, " LCDPW1:      %08x\n", LCD_READ(sc, LCDPW1));
-	device_printf(sc->dev, " LCDCPOS1:    %08x\n", LCD_READ(sc, LCDPOS1));
-	device_printf(sc->dev, " LCDDESSIZE1: %08x\n", LCD_READ(sc, LCDDESSIZE1));
-	device_printf(sc->dev, " -\n");
-	device_printf(sc->dev, " LCDVAT:      %08x\n", LCD_READ(sc, LCDVAT));
-	device_printf(sc->dev, " LCDDAH:      %08x\n", LCD_READ(sc, LCDDAH));
-	device_printf(sc->dev, " LCDDAV:      %08x\n", LCD_READ(sc, LCDDAV));
-	device_printf(sc->dev, " LCDHSYNC:    %08x\n", LCD_READ(sc, LCDHSYNC));
-	device_printf(sc->dev, " LCDVSYNC:    %08x\n", LCD_READ(sc, LCDVSYNC));
-	device_printf(sc->dev, " LCDXYP0:     %08x\n", LCD_READ(sc, LCDXYP0));
-	device_printf(sc->dev, " LCDXYP1:     %08x\n", LCD_READ(sc, LCDXYP1));
-	device_printf(sc->dev, " LCDSIZE0:    %08x\n", LCD_READ(sc, LCDSIZE0));
-	device_printf(sc->dev, " LCDSIZE1:    %08x\n", LCD_READ(sc, LCDSIZE1));
-	device_printf(sc->dev, " -\n");
-	device_printf(sc->dev, " LCDCFG:      %08x\n", LCD_READ(sc, LCDCFG));
-	device_printf(sc->dev, " LCDCTRL:     %08x\n", LCD_READ(sc, LCDCTRL));
-	device_printf(sc->dev, " LCDPCFG:     %08x\n", LCD_READ(sc, LCDPCFG));
-	device_printf(sc->dev, " LCDRGBC:     %08x\n", LCD_READ(sc, LCDRGBC));
-	device_printf(sc->dev, " -\n");
-	device_printf(sc->dev, " LCDOSDC:     %08x\n", LCD_READ(sc, LCDOSDC));
-	device_printf(sc->dev, " LCDOSDCTRL:  %08x\n", LCD_READ(sc, LCDOSDCTRL));
-	device_printf(sc->dev, " LCDOSDS:     %08x\n", LCD_READ(sc, LCDOSDS));
-	device_printf(sc->dev, " LCDSTATE:    %08x\n", LCD_READ(sc, LCDSTATE));
-#endif
 }
 
 static void
@@ -191,27 +154,32 @@ jzlcd_stop(struct jzlcd_softc *sc)
 
 	ctrl = LCD_READ(sc, LCDCTRL);
 	if ((ctrl & LCDCTRL_ENA) != 0) {
+		/* Disable the controller and wait for it to stop */
 		ctrl |= LCDCTRL_DIS;
 		LCD_WRITE(sc, LCDCTRL, ctrl);
 		while ((LCD_READ(sc, LCDSTATE) & LCDSTATE_LDD) == 0)
 			DELAY(100);
 	}
+	/* Clear all status except for disable */
 	LCD_WRITE(sc, LCDSTATE, LCD_READ(sc, LCDSTATE) & ~LCDSTATE_LDD);
 }
 
 static void
-jzlcd_setup_descriptor(struct jzlcd_softc *sc, const struct videomode *mode, u_int desno)
+jzlcd_setup_descriptor(struct jzlcd_softc *sc, const struct videomode *mode,
+    u_int desno)
 {
 	struct lcd_frame_descriptor *fdesc;
 	int line_sz;
 
+	/* Frame size is specified in # words */
 	line_sz = (mode->hdisplay * FB_BPP) >> 3;
 	line_sz = ((line_sz + 3) & ~3) / 4;
 
 	fdesc = sc->fdesc + desno;
 
 	if (desno == 0)
-		fdesc->next = sc->fdesc_paddr + sizeof(struct lcd_frame_descriptor);
+		fdesc->next = sc->fdesc_paddr +
+		    sizeof(struct lcd_frame_descriptor);
 	else
 		fdesc->next = sc->fdesc_paddr;
 	fdesc->physaddr = sc->paddr;
@@ -220,7 +188,8 @@ jzlcd_setup_descriptor(struct jzlcd_softc *sc, const struct videomode *mode, u_i
 	fdesc->offs = 0;
 	fdesc->pw = 0;
 	fdesc->cnum_pos = LCDPOS_BPP01_18_24 |
-	    LCDPOS_PREMULTI01 | (desno == 0 ? LCDPOS_COEF_BLE01_1 : LCDPOS_COEF_SLE01);
+	    LCDPOS_PREMULTI01 |
+	    (desno == 0 ? LCDPOS_COEF_BLE01_1 : LCDPOS_COEF_SLE01);
 	fdesc->dessize = LCDDESSIZE_ALPHA |
 	    ((mode->vdisplay - 1) << LCDDESSIZE_HEIGHT_SHIFT) |
 	    ((mode->hdisplay - 1) << LCDDESSIZE_WIDTH_SHIFT);
@@ -278,7 +247,8 @@ jzlcd_set_videomode(struct jzlcd_softc *sc, const struct videomode *mode)
 	bus_dmamap_sync(sc->fdesc_tag, sc->fdesc_map, BUS_DMASYNC_PREWRITE);
 
 	/* Setup DMA channels */
-	LCD_WRITE(sc, LCDDA0, sc->fdesc_paddr + sizeof(struct lcd_frame_descriptor));
+	LCD_WRITE(sc, LCDDA0, sc->fdesc_paddr
+	    + sizeof(struct lcd_frame_descriptor));
 	LCD_WRITE(sc, LCDDA1, sc->fdesc_paddr);
 
 	/* Set display clock */
@@ -289,9 +259,6 @@ jzlcd_set_videomode(struct jzlcd_softc *sc, const struct videomode *mode)
 		return (error);
 	}
 
-	uint64_t act_freq = 0;
-	clk_get_freq(sc->clk_pix, &act_freq);
-	
 	return (0);
 }
 
@@ -366,6 +333,24 @@ jzlcd_get_bandwidth(const struct videomode *mode)
 	return mode->hdisplay * mode->vdisplay * refresh;
 }
 
+static int
+jzlcd_mode_supported(const struct videomode *mode)
+{
+	/* Width and height must be less than 2048 */
+	if (mode->hdisplay > FB_MAX_W || mode->vdisplay > FB_MAX_H)
+		return (0);
+
+	/* Bandwidth check */
+	if (jzlcd_get_bandwidth(mode) > FB_MAX_BW)
+		return (0);
+
+	/* Interlace modes not yet supported by the driver */
+	if ((mode->flags & VID_INTERLACE) != 0)
+		return (0);
+
+	return (1);
+}
+
 static const struct videomode *
 jzlcd_find_mode(struct edid_info *ei)
 {
@@ -373,14 +358,14 @@ jzlcd_find_mode(struct edid_info *ei)
 	int n, bw, best_bw;
 
 	/* If the preferred mode is OK, just use it */
-	if (jzlcd_get_bandwidth(ei->edid_preferred_mode) <= FB_MAX_BW)
+	if (jzlcd_mode_supported(ei->edid_preferred_mode) != 0)
 		return ei->edid_preferred_mode;
 
-	/* Find the highest bw progressive scan mode */
+	/* Pick the mode with the highest bandwidth requirements */
 	best = NULL;
 	best_bw = 0;
 	for (n = 0; n < ei->edid_nmodes; n++) {
-		if ((ei->edid_modes[n].flags & VID_INTERLACE) != 0)
+		if (jzlcd_mode_supported(&ei->edid_modes[n]) == 0)
 			continue;
 		bw = jzlcd_get_bandwidth(&ei->edid_modes[n]);
 		if (bw > FB_MAX_BW)
@@ -426,7 +411,7 @@ jzlcd_hdmi_event(void *arg, device_t hdmi_dev)
 		}
 	}
 
-	/* If the preferred mode could not be determined, use the default */
+	/* If a suitable mode could not be found, try the default */
 	if (mode == NULL)
 		mode = pick_mode_by_ref(FB_DEFAULT_W, FB_DEFAULT_H,
 		    FB_DEFAULT_REF);
@@ -450,6 +435,7 @@ jzlcd_hdmi_event(void *arg, device_t hdmi_dev)
 		return;
 	}
 
+	/* Enable HDMI TX */
 	hdmi_mode = *mode;
 	HDMI_SET_VIDEOMODE(hdmi_dev, &hdmi_mode);
 
