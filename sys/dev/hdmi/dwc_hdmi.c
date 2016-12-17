@@ -35,15 +35,11 @@ __FBSDID("$FreeBSD$");
 #include <sys/systm.h>
 #include <sys/kernel.h>
 #include <sys/module.h>
+#include <sys/malloc.h>
 #include <sys/bus.h>
 #include <sys/rman.h>
 
-#include <dev/ofw/ofw_bus.h>
-#include <dev/ofw/ofw_bus_subr.h>
-
 #include <machine/bus.h>
-
-#include <dev/extres/clk/clk.h>
 
 #include <dev/videomode/videomode.h>
 #include <dev/videomode/edidvar.h>
@@ -51,45 +47,13 @@ __FBSDID("$FreeBSD$");
 #include <dev/iicbus/iicbus.h>
 #include <dev/iicbus/iiconf.h>
 
+#include <dev/hdmi/dwc_hdmi.h>
 #include <dev/hdmi/dwc_hdmireg.h>
 
 #include "hdmi_if.h"
 
 #define	I2C_DDC_ADDR	(0x50 << 1)
 #define	EDID_LENGTH	0x80
-
-struct dwc_hdmi_softc {
-	device_t		sc_dev;
-	struct resource		*sc_mem_res;
-	int			sc_mem_rid;
-	struct intr_config_hook	sc_mode_hook;
-	struct videomode	sc_mode;
-	uint8_t			*sc_edid;
-	uint8_t			sc_edid_len;
-	phandle_t		sc_i2c_xref;
-	clk_t			sc_clk_hdmi;
-	clk_t			sc_clk_ahb;
-	uint32_t		sc_reg_shift;
-};
-
-static struct ofw_compat_data compat_data[] = {
-	{ "synopsys,dwc-hdmi",	1 },
-	{ NULL,	            	0 }
-};
-
-static inline uint8_t
-RD1(struct dwc_hdmi_softc *sc, bus_size_t off)
-{
-
-	return (bus_read_1(sc->sc_mem_res, off << sc->sc_reg_shift));
-}
-
-static inline void
-WR1(struct dwc_hdmi_softc *sc, bus_size_t off, uint8_t val)
-{
-
-	bus_write_1(sc->sc_mem_res, off << sc->sc_reg_shift, val);
-}
 
 static void
 dwc_hdmi_phy_wait_i2c_done(struct dwc_hdmi_softc *sc, int msec)
@@ -622,14 +586,12 @@ hdmi_edid_read(struct dwc_hdmi_softc *sc, uint8_t **edid, uint32_t *edid_len)
 
 	*edid = NULL;
 	*edid_len = 0;
+	i2c_dev = NULL;
 
-	if (sc->sc_i2c_xref == 0)
-		return (ENXIO);
-
-	i2c_dev = OF_device_from_xref(sc->sc_i2c_xref);
+	if (sc->sc_get_i2c_dev != NULL)
+		i2c_dev = sc->sc_get_i2c_dev(sc->sc_dev);
 	if (!i2c_dev) {
-		device_printf(sc->sc_dev,
-		    "no actual device for \"ddc\" property (handle=%x)\n", sc->sc_i2c_xref);
+		device_printf(sc->sc_dev, "no DDC device found\n");
 		return (ENXIO);
 	}
 
@@ -679,90 +641,17 @@ dwc_hdmi_detect_cable(void *arg)
 	config_intrhook_disestablish(&sc->sc_mode_hook);
 }
 
-static int
-dwc_hdmi_detach(device_t dev)
-{
-	struct dwc_hdmi_softc *sc;
-
-	sc = device_get_softc(dev);
-
-	if (sc->sc_clk_ahb != NULL)
-		clk_release(sc->sc_clk_ahb);
-	if (sc->sc_clk_hdmi != NULL)
-		clk_release(sc->sc_clk_hdmi);
-
-	if (sc->sc_mem_res != NULL)
-		bus_release_resource(dev, SYS_RES_MEMORY,
-		    sc->sc_mem_rid, sc->sc_mem_res);
-
-	return (0);
-}
-
-static int
-dwc_hdmi_attach(device_t dev)
+int
+dwc_hdmi_init(device_t dev)
 {
 	struct dwc_hdmi_softc *sc;
 	int err;
-	phandle_t node, i2c_xref;
-	uint32_t freq;
 
 	sc = device_get_softc(dev);
-	sc->sc_dev = dev;
 	err = 0;
-
-	/* Allocate memory resources. */
-	sc->sc_mem_rid = 0;
-	sc->sc_mem_res = bus_alloc_resource_any(dev, SYS_RES_MEMORY, &sc->sc_mem_rid,
-	    RF_ACTIVE);
-	if (sc->sc_mem_res == NULL) {
-		device_printf(dev, "Cannot allocate memory resources\n");
-		err = ENXIO;
-		goto out;
-	}
-
-	node = ofw_bus_get_node(dev);
-	if (OF_getencprop(node, "ddc", &i2c_xref, sizeof(i2c_xref)) == -1)
-		sc->sc_i2c_xref = 0;
-	else
-		sc->sc_i2c_xref = i2c_xref;
 
 	sc->sc_edid = malloc(EDID_LENGTH, M_DEVBUF, M_WAITOK | M_ZERO);
 	sc->sc_edid_len = EDID_LENGTH;
-
-	if (clk_get_by_ofw_name(dev, 0, "hdmi", &sc->sc_clk_hdmi) != 0 ||
-	    clk_get_by_ofw_name(dev, 0, "ahb", &sc->sc_clk_ahb) != 0) {
-		device_printf(dev, "Cannot get clocks\n");
-		err = ENXIO;
-		goto out;
-	}
-	if (OF_getencprop(node, "clock-frequency", &freq, sizeof(freq)) > 0) {
-		err = clk_set_freq(sc->sc_clk_hdmi, freq, CLK_SET_ROUND_DOWN);
-		if (err != 0) {
-			device_printf(dev,
-			    "Cannot set HDMI clock frequency to %u Hz\n", freq);
-			goto out;
-		}
-		if (bootverbose) {
-			uint64_t act_freq = 0;
-			clk_get_freq(sc->sc_clk_hdmi, &act_freq);
-			device_printf(dev, "HDMI clock frequency %u Hz (%u Hz)\n", freq, (unsigned int)act_freq);
-		}
-	} else
-		device_printf(dev, "HDMI clock frequency not specified\n");
-	if (clk_enable(sc->sc_clk_hdmi) != 0) {
-		device_printf(dev, "Cannot enable HDMI clock\n");
-		err = ENXIO;
-		goto out;
-	}
-	if (clk_enable(sc->sc_clk_ahb) != 0) {
-		device_printf(dev, "Cannot enable AHB clock\n");
-		err = ENXIO;
-		goto out;
-	}
-
-	if (OF_getencprop(node, "reg-shift", &sc->sc_reg_shift,
-	    sizeof(sc->sc_reg_shift)) <= 0)
-		sc->sc_reg_shift = 0;
 
 	device_printf(sc->sc_dev, "HDMI controller %02x:%02x:%02x:%02x\n",
 	    RD1(sc, HDMI_DESIGN_ID), RD1(sc, HDMI_REVISION_ID),
@@ -780,32 +669,22 @@ dwc_hdmi_attach(device_t dev)
 
 out:
 
-	if (err != 0)
-		dwc_hdmi_detach(dev);
+	if (err != 0) {
+		free(sc->sc_edid, M_DEVBUF);
+		sc->sc_edid = NULL;
+	}
 
 	return (err);
 }
 
-static int
-dwc_hdmi_probe(device_t dev)
-{
-
-	if (ofw_bus_search_compatible(dev, compat_data)->ocd_data == 0)
-		return (ENXIO);
-
-	device_set_desc(dev, "Synopsys DesignWare HDMI Controller");
-
-	return (BUS_PROBE_DEFAULT);
-}
-
-static int
+int
 dwc_hdmi_get_edid(device_t dev, uint8_t **edid, uint32_t *edid_len)
 {
 
 	return (hdmi_edid_read(device_get_softc(dev), edid, edid_len));
 }
 
-static int
+int
 dwc_hdmi_set_videomode(device_t dev, const struct videomode *mode)
 {
 	struct dwc_hdmi_softc *sc;
@@ -817,26 +696,3 @@ dwc_hdmi_set_videomode(device_t dev, const struct videomode *mode)
 
 	return (0);
 }
-
-static device_method_t dwc_hdmi_methods[] = {
-	/* Device interface */
-	DEVMETHOD(device_probe,  dwc_hdmi_probe),
-	DEVMETHOD(device_attach, dwc_hdmi_attach),
-	DEVMETHOD(device_detach, dwc_hdmi_detach),
-
-	/* HDMI methods */
-	DEVMETHOD(hdmi_get_edid,	dwc_hdmi_get_edid),
-	DEVMETHOD(hdmi_set_videomode,	dwc_hdmi_set_videomode),
-
-	DEVMETHOD_END
-};
-
-static driver_t dwc_hdmi_driver = {
-	"dwc_hdmi",
-	dwc_hdmi_methods,
-	sizeof(struct dwc_hdmi_softc)
-};
-
-static devclass_t dwc_hdmi_devclass;
-
-DRIVER_MODULE(hdmi, simplebus, dwc_hdmi_driver, dwc_hdmi_devclass, 0, 0);
