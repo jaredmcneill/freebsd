@@ -328,7 +328,6 @@ dwc_hdmi_phy_configure(struct dwc_hdmi_softc *sc)
 	/* RESISTANCE TERM 133 Ohm */
 	dwc_hdmi_phy_i2c_write(sc, TXTERM_133, HDMI_PHY_I2C_TXTERM);
 
-#if 0
 	/* REMOVE CLK TERM */
 	dwc_hdmi_phy_i2c_write(sc, CKCALCTRL_OVERRIDE, HDMI_PHY_I2C_CKCALCTRL);
 
@@ -343,12 +342,6 @@ dwc_hdmi_phy_configure(struct dwc_hdmi_softc *sc)
 		dwc_hdmi_phy_i2c_write(sc, VLEVCTRL_TX_LVL(13) | VLEVCTRL_CK_LVL(13),
 		    HDMI_PHY_I2C_VLEVCTRL);
 	}
-#else
-	dwc_hdmi_phy_i2c_write(sc, 0x800d, HDMI_PHY_I2C_CKSYMTXCTRL);
-	dwc_hdmi_phy_i2c_write(sc, 0x01ad, HDMI_PHY_I2C_VLEVCTRL);
-	/* REMOVE CLK TERM */
-	dwc_hdmi_phy_i2c_write(sc, CKCALCTRL_OVERRIDE, HDMI_PHY_I2C_CKCALCTRL);
-#endif
 
 	dwc_hdmi_phy_enable_power(sc, 1);
 
