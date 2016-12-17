@@ -82,7 +82,7 @@ __FBSDID("$FreeBSD$");
 struct jzlcd_softc {
 	device_t		dev;
 	device_t		fbdev;
-	struct resource		*res;
+	struct resource		*res[1];
 
 	/* Clocks */
 	clk_t			clk;
@@ -109,8 +109,8 @@ static struct resource_spec jzlcd_spec[] = {
 	{ -1, 0 }
 };
 
-#define	LCD_READ(sc, reg)		bus_read_4((sc)->res, (reg))
-#define	LCD_WRITE(sc, reg, val)		bus_write_4((sc)->res, (reg), (val))
+#define	LCD_READ(sc, reg)		bus_read_4((sc)->res[0], (reg))
+#define	LCD_WRITE(sc, reg, val)		bus_write_4((sc)->res[0], (reg), (val))
 
 static int
 jzlcd_allocfb(struct jzlcd_softc *sc)
@@ -474,19 +474,19 @@ jzlcd_attach(device_t dev)
 
 	sc->dev = dev;
 
-	if (bus_alloc_resources(dev, jzlcd_spec, &sc->res)) {
+	if (bus_alloc_resources(dev, jzlcd_spec, sc->res)) {
 		device_printf(dev, "cannot allocate resources for device\n");
-		return (ENXIO);
+		goto failed;
 	}
 
 	if (clk_get_by_ofw_name(dev, 0, "lcd_clk", &sc->clk) != 0 ||
 	    clk_get_by_ofw_name(dev, 0, "lcd_pixclk", &sc->clk_pix) != 0) {
 		device_printf(dev, "cannot get clocks\n");
-		return (ENXIO);
+		goto failed;
 	}
 	if (clk_enable(sc->clk) != 0 || clk_enable(sc->clk_pix) != 0) {
 		device_printf(dev, "cannot enable clocks\n");
-		return (ENXIO);
+		goto failed;
 	}
 
 	error = bus_dma_tag_create(
@@ -502,14 +502,14 @@ jzlcd_attach(device_t dev)
 	    &sc->fdesc_tag);
 	if (error != 0) {
 		device_printf(dev, "cannot create bus dma tag\n");
-		return (ENXIO);
+		goto failed;
 	}
 
 	error = bus_dmamem_alloc(sc->fdesc_tag, (void **)&sc->fdesc,
 	    BUS_DMA_NOCACHE | BUS_DMA_WAITOK | BUS_DMA_ZERO, &sc->fdesc_map);
 	if (error != 0) {
 		device_printf(dev, "cannot allocate dma descriptor\n");
-		return (ENXIO);
+		goto dmaalloc_failed;
 	}
 
 	error = bus_dmamap_load(sc->fdesc_tag, sc->fdesc_map, sc->fdesc,
@@ -517,13 +517,27 @@ jzlcd_attach(device_t dev)
 	    &sc->fdesc_paddr, 0);
 	if (error != 0) {
 		device_printf(dev, "cannot load dma map\n");
-		return (ENXIO);
+		goto dmaload_failed;
 	}
 
 	sc->hdmi_evh = EVENTHANDLER_REGISTER(hdmi_event,
 	    jzlcd_hdmi_event, sc, 0);
 
 	return (0);
+
+dmaload_failed:
+	bus_dmamem_free(sc->fdesc_tag, sc->fdesc, sc->fdesc_map);
+dmaalloc_failed:
+	bus_dma_tag_destroy(sc->fdesc_tag);
+failed:
+	if (sc->clk_pix != NULL)
+		clk_release(sc->clk);
+	if (sc->clk != NULL)
+		clk_release(sc->clk);
+	if (sc->res != NULL)
+		bus_release_resources(dev, jzlcd_spec, sc->res);
+
+	return (ENXIO);
 }
 
 static struct fb_info *
