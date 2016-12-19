@@ -101,6 +101,7 @@ imx_hdmi_attach(device_t dev)
 
 	sc = device_get_softc(dev);
 	sc->base.sc_dev = dev;
+	sc->base.sc_get_i2c_dev = imx_hdmi_get_i2c_dev;
 	err = 0;
 
 	/* Allocate memory resources. */
@@ -126,10 +127,10 @@ imx_hdmi_attach(device_t dev)
 	gpr3 |= IOMUXC_GPR3_HDMI_IPU1_DI0;
 	imx_iomux_gpr_set(IOMUXC_GPR3, gpr3);
 
-out:
+	return (dwc_hdmi_init(dev));
 
-	if (err != 0)
-		imx_hdmi_detach(dev);
+out:
+	imx_hdmi_detach(dev);
 
 	return (err);
 }
