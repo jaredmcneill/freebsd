@@ -373,7 +373,8 @@ jz4780_mmc_prepare_dma(struct jz4780_mmc_softc *sc)
 	if (cmd->data->len > JZ_MSC_DMA_MAX_SIZE * JZ_MSC_DMA_SEGS)
 		return (EFBIG);
 	error = bus_dmamap_load(sc->sc_dma_buf_tag, sc->sc_dma_buf_map,
-	    cmd->data->data, cmd->data->len, jz4780_mmc_dma_cb, sc, 0);
+	    cmd->data->data, cmd->data->len, jz4780_mmc_dma_cb, sc,
+	    BUS_DMA_NOWAIT);
 	if (error)
 		return (error);
 	if (sc->sc_dma_map_err)
@@ -388,7 +389,7 @@ jz4780_mmc_prepare_dma(struct jz4780_mmc_softc *sc)
 	bus_dmamap_sync(sc->sc_dma_tag, sc->sc_dma_map, BUS_DMASYNC_PREWRITE);
 
 	/* Configure default DMA parameters */
-	sc->sc_dma_ctl = JZ_DMAEN;
+	sc->sc_dma_ctl = JZ_MODE_SEL | JZ_INCR_64 | JZ_DMAEN;
 
 	/* Enable unaligned buffer handling */
 	off = (uintptr_t)cmd->data->data & 3;
@@ -709,10 +710,6 @@ jz4780_mmc_request(device_t bus, device_t child, struct mmc_request *req)
 		if (sc->sc_dma_inuse != 0) {
 			/* Wait for DMA completion interrupt */
 			iwait |= JZ_INT_DMAEND;
-		} else if (jz4780_mmc_pio_mode == 0) {
-			/* Failed to setup DMA transfer */
-			JZ_MMC_UNLOCK(sc);
-			return (EIO);
 		} else {
 			iwait |= (cmd->data->flags & MMC_DATA_WRITE) ?
 			    JZ_INT_TXFIFO_WR_REQ : JZ_INT_RXFIFO_RD_REQ;
