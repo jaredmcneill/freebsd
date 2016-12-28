@@ -122,7 +122,7 @@ dwc_hdmi_av_composer(struct dwc_hdmi_softc *sc)
 		HDMI_FC_INVIDCONF_IN_I_P_PROGRESSIVE);
 
 	/* TODO: implement HDMI part */
-	is_dvi = 1;
+	is_dvi = sc->sc_has_audio;
 	inv_val |= (is_dvi ?
 		HDMI_FC_INVIDCONF_DVI_MODEZ_DVI_MODE :
 		HDMI_FC_INVIDCONF_DVI_MODEZ_HDMI_MODE);
@@ -419,6 +419,68 @@ dwc_hdmi_enable_video_path(struct dwc_hdmi_softc *sc)
 }
 
 static void
+dwc_hdmi_enable_audio_path(struct dwc_hdmi_softc *sc)
+{
+	unsigned int n;
+	uint8_t val;
+
+	if (sc->sc_has_audio == 0)
+		return;
+
+	/* The following values are for 48 kHz */
+#if 1
+	switch (sc->sc_mode.dot_clock) {
+	case 25170:
+		n = 6864;
+		break;
+	case 27020:
+		n = 6144;
+		
+	case 74170:
+		n = 11648;
+		break;
+	case 148350:
+		n = 5824;
+		break;
+	default:
+		n = 6144;
+		break;
+	}
+#else
+	n = (128 * 48000) / 1000;
+#endif
+
+	WR1(sc, HDMI_AUD_N1, (n >> 0) & 0xff);
+	WR1(sc, HDMI_AUD_N2, (n >> 8) & 0xff);
+	WR1(sc, HDMI_AUD_N3, (n >> 16) & 0xff);
+
+	val = RD1(sc, HDMI_AUD_CTS3);
+	val &= ~(HDMI_AUD_CTS3_N_SHIFT_MASK | HDMI_AUD_CTS3_CTS_MANUAL);
+	WR1(sc, HDMI_AUD_CTS3, val);
+
+	val = RD1(sc, HDMI_AUD_CONF0);
+	val &= ~HDMI_AUD_CONF0_INTERFACE_MASK;
+	val |= HDMI_AUD_CONF0_INTERFACE_IIS;
+	val &= ~HDMI_AUD_CONF0_I2SINEN_MASK;
+	val |= HDMI_AUD_CONF0_I2SINEN_CH2;
+	WR1(sc, HDMI_AUD_CONF0, val);
+
+	val = RD1(sc, HDMI_AUD_CONF1);
+	val &= ~HDMI_AUD_CONF1_DATAMODE_MASK;
+	val |= HDMI_AUD_CONF1_DATAMODE_IIS;
+	val &= ~HDMI_AUD_CONF1_DATWIDTH_MASK;
+	val |= HDMI_AUD_CONF1_DATWIDTH_16BIT;
+	WR1(sc, HDMI_AUD_CONF1, val);
+
+	WR1(sc, HDMI_AUD_INPUTCLKFS, HDMI_AUD_INPUTCLKFS_64);
+
+	/* Enable audio clock */
+	val = RD1(sc, HDMI_MC_CLKDIS);
+	val &= ~HDMI_MC_CLKDIS_AUDCLK_DISABLE;
+	WR1(sc, HDMI_MC_CLKDIS, val);
+}
+
+static void
 dwc_hdmi_video_packetize(struct dwc_hdmi_softc *sc)
 {
 	unsigned int color_depth = 0;
@@ -552,11 +614,15 @@ static int
 dwc_hdmi_set_mode(struct dwc_hdmi_softc *sc)
 {
 
+	/* XXX */
+	sc->sc_has_audio = 1;
+
 	dwc_hdmi_disable_overflow_interrupts(sc);
 	dwc_hdmi_av_composer(sc);
 	dwc_hdmi_phy_init(sc);
 	dwc_hdmi_enable_video_path(sc);
-	/* TODO: AVI infoframes */
+	dwc_hdmi_enable_audio_path(sc);
+	/* TODO:  dwc_hdmi_config_av(sc); */
 	dwc_hdmi_video_packetize(sc);
 	/* TODO:  dwc_hdmi_video_csc(sc); */
 	dwc_hdmi_video_sample(sc);

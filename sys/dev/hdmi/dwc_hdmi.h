@@ -40,6 +40,8 @@ struct dwc_hdmi_softc {
 	uint8_t			sc_edid_len;
 	struct intr_config_hook	sc_mode_hook;
 	struct videomode	sc_mode;
+
+	int			sc_has_audio;
 };
 
 static inline uint8_t
