@@ -41,6 +41,7 @@ struct dwc_hdmi_softc {
 	struct intr_config_hook	sc_mode_hook;
 	struct videomode	sc_mode;
 
+	struct edid_info	sc_edid_info;
 	int			sc_has_audio;
 };
 
