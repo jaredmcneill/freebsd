@@ -122,7 +122,7 @@ dwc_hdmi_av_composer(struct dwc_hdmi_softc *sc)
 		HDMI_FC_INVIDCONF_IN_I_P_PROGRESSIVE);
 
 	/* TODO: implement HDMI part */
-	is_dvi = sc->sc_has_audio;
+	is_dvi = sc->sc_has_audio == 0;
 	inv_val |= (is_dvi ?
 		HDMI_FC_INVIDCONF_DVI_MODEZ_DVI_MODE :
 		HDMI_FC_INVIDCONF_DVI_MODEZ_HDMI_MODE);
@@ -435,7 +435,7 @@ dwc_hdmi_enable_audio_path(struct dwc_hdmi_softc *sc)
 		break;
 	case 27020:
 		n = 6144;
-		
+		break;
 	case 74170:
 		n = 11648;
 		break;
@@ -449,6 +449,8 @@ dwc_hdmi_enable_audio_path(struct dwc_hdmi_softc *sc)
 #else
 	n = (128 * 48000) / 1000;
 #endif
+
+	printf("HDMI: using N %d for dot clock %u kHz\n", n, sc->sc_mode.dot_clock);
 
 	WR1(sc, HDMI_AUD_N1, (n >> 0) & 0xff);
 	WR1(sc, HDMI_AUD_N2, (n >> 8) & 0xff);
@@ -473,6 +475,12 @@ dwc_hdmi_enable_audio_path(struct dwc_hdmi_softc *sc)
 	WR1(sc, HDMI_AUD_CONF1, val);
 
 	WR1(sc, HDMI_AUD_INPUTCLKFS, HDMI_AUD_INPUTCLKFS_64);
+
+	WR1(sc, HDMI_FC_AUDICONF0, 1 << 4);	/* CC=1 */
+	WR1(sc, HDMI_FC_AUDICONF1, 0);
+	WR1(sc, HDMI_FC_AUDICONF2, 0);		/* CA=0 */
+	WR1(sc, HDMI_FC_AUDICONF3, 0);
+	WR1(sc, HDMI_FC_AUDSV, 0xee);		/* channels valid */
 
 	/* Enable audio clock */
 	val = RD1(sc, HDMI_MC_CLKDIS);
@@ -610,6 +618,29 @@ dwc_hdmi_tx_hdcp_config(struct dwc_hdmi_softc *sc)
 	WR1(sc, HDMI_A_HDCPCFG1, val);
 }
 
+static void
+dwc_hdmi_config_avi(struct dwc_hdmi_softc *sc)
+{
+#if 0
+	int vic = 16;
+
+	WR1(sc, HDMI_FC_AVICONF0, 0);
+	WR1(sc, HDMI_FC_AVICONF1, 0x2a);
+	WR1(sc, HDMI_FC_AVICONF2, 0);
+	WR1(sc, HDMI_FC_AVICONF3, 0);
+	WR1(sc, HDMI_FC_AVIVID, vic);
+	WR1(sc, HDMI_FC_PRCONF, 0x11);
+	WR1(sc, HDMI_FC_AVIETB0, 0);
+	WR1(sc, HDMI_FC_AVIETB1, 0);
+	WR1(sc, HDMI_FC_AVISBB0, 0);
+	WR1(sc, HDMI_FC_AVISBB1, 0);
+	WR1(sc, HDMI_FC_AVIELB0, 0);
+	WR1(sc, HDMI_FC_AVIELB1, 0);
+	WR1(sc, HDMI_FC_AVISRB0, 0);
+	WR1(sc, HDMI_FC_AVISRB1, 0);
+#endif
+}
+
 static int
 dwc_hdmi_set_mode(struct dwc_hdmi_softc *sc)
 {
@@ -622,7 +653,8 @@ dwc_hdmi_set_mode(struct dwc_hdmi_softc *sc)
 	dwc_hdmi_phy_init(sc);
 	dwc_hdmi_enable_video_path(sc);
 	dwc_hdmi_enable_audio_path(sc);
-	/* TODO:  dwc_hdmi_config_av(sc); */
+	if (sc->sc_has_audio == 1)
+		dwc_hdmi_config_avi(sc);
 	dwc_hdmi_video_packetize(sc);
 	/* TODO:  dwc_hdmi_video_csc(sc); */
 	dwc_hdmi_video_sample(sc);
