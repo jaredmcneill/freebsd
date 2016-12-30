@@ -194,6 +194,7 @@ typedef struct efx_mac_ops_s {
 					    efx_loopback_type_t);
 #endif	/* EFSYS_OPT_LOOPBACK */
 #if EFSYS_OPT_MAC_STATS
+	efx_rc_t	(*emo_stats_get_mask)(efx_nic_t *, uint32_t *, size_t);
 	efx_rc_t	(*emo_stats_upload)(efx_nic_t *, efsys_mem_t *);
 	efx_rc_t	(*emo_stats_periodic)(efx_nic_t *, efsys_mem_t *,
 					      uint16_t, boolean_t);
@@ -426,7 +427,10 @@ typedef struct efx_mcdi_ops_s {
 	boolean_t	(*emco_poll_response)(efx_nic_t *);
 	void		(*emco_read_response)(efx_nic_t *, void *, size_t, size_t);
 	void		(*emco_fini)(efx_nic_t *);
-	efx_rc_t	(*emco_feature_supported)(efx_nic_t *, efx_mcdi_feature_id_t, boolean_t *);
+	efx_rc_t	(*emco_feature_supported)(efx_nic_t *,
+					    efx_mcdi_feature_id_t, boolean_t *);
+	void		(*emco_get_timeout)(efx_nic_t *, efx_mcdi_req_t *,
+					    uint32_t *);
 } efx_mcdi_ops_t;
 
 typedef struct efx_mcdi_s {
@@ -452,7 +456,7 @@ typedef struct efx_nvram_ops_s {
 					    unsigned int, size_t);
 	efx_rc_t	(*envo_partn_write)(efx_nic_t *, uint32_t,
 					    unsigned int, caddr_t, size_t);
-	void		(*envo_partn_rw_finish)(efx_nic_t *, uint32_t);
+	efx_rc_t	(*envo_partn_rw_finish)(efx_nic_t *, uint32_t);
 	efx_rc_t	(*envo_partn_get_version)(efx_nic_t *, uint32_t,
 					    uint32_t *, uint16_t *);
 	efx_rc_t	(*envo_partn_set_version)(efx_nic_t *, uint32_t,
@@ -540,7 +544,8 @@ efx_mcdi_nvram_write(
 efx_mcdi_nvram_update_finish(
 	__in			efx_nic_t *enp,
 	__in			uint32_t partn,
-	__in			boolean_t reboot);
+	__in			boolean_t reboot,
+	__out_opt		uint32_t *resultp);
 
 #if EFSYS_OPT_DIAG
 
@@ -709,6 +714,8 @@ struct efx_evq_s {
 #endif	/* EFSYS_OPT_MCDI */
 
 	efx_evq_rxq_state_t		ee_rxq_state[EFX_EV_RX_NLABELS];
+
+	uint32_t			ee_flags;
 };
 
 #define	EFX_EVQ_MAGIC	0x08081997
@@ -1154,6 +1161,27 @@ efx_mcdi_get_workarounds(
 	__out_opt		uint32_t *enabledp);
 
 #endif /* EFSYS_OPT_MCDI */
+
+#if EFSYS_OPT_MAC_STATS
+
+/*
+ * Closed range of stats (i.e. the first and the last are included).
+ * The last must be greater or equal (if the range is one item only) to
+ * the first.
+ */
+struct efx_mac_stats_range {
+	efx_mac_stat_t		first;
+	efx_mac_stat_t		last;
+};
+
+extern					efx_rc_t
+efx_mac_stats_mask_add_ranges(
+	__inout_bcount(mask_size)	uint32_t *maskp,
+	__in				size_t mask_size,
+	__in_ecount(rng_count)		const struct efx_mac_stats_range *rngp,
+	__in				unsigned int rng_count);
+
+#endif	/* EFSYS_OPT_MAC_STATS */
 
 #ifdef	__cplusplus
 }
