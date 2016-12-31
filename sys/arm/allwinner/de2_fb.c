@@ -364,28 +364,8 @@ de2fb_setup_de(struct de2fb_softc *sc, const struct videomode *mode)
 static int
 de2fb_setup_pll(struct de2fb_softc *sc, uint64_t freq)
 {
-	clk_t pllvideo;
-	uint64_t pfreq;
 	int error;
 
-	if ((270000000 * 2) % freq == 0)
-		pfreq = 270000000;
-	else if (297000000 % freq == 0)
-		pfreq = 297000000;
-	else
-		return (EINVAL);
-
-	error = clk_get_parent(sc->clock_tcon0, &pllvideo);
-	if (error != 0) {
-		device_printf(sc->dev, "cannot get %s clock parent\n", clk_get_name(sc->clock_tcon0));
-		return (error);
-	}
-
-	error = clk_set_freq(pllvideo, pfreq, 0);
-	if (error != 0) {
-		device_printf(sc->dev, "cannot set %s frequency\n", clk_get_name(pllvideo));
-		return (error);
-	}
 	error = clk_set_freq(sc->clock_tcon0, freq, 0);
 	if (error != 0) {
 		device_printf(sc->dev, "cannot set %s frequency\n", clk_get_name(sc->clock_tcon0));
