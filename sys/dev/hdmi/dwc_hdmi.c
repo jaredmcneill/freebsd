@@ -709,9 +709,19 @@ dwc_hdmi_detect_cable(void *arg)
 	sc = arg;
 
 	stat = RD1(sc, HDMI_IH_PHY_STAT0);
+	if (bootverbose)
+		device_printf(sc->sc_dev, "HDMI_IH_PHY_STAT0 = %02x\n", stat);
 	if ((stat & HDMI_IH_PHY_STAT0_HPD) != 0) {
 		EVENTHANDLER_INVOKE(hdmi_event, sc->sc_dev,
 		    HDMI_EVENT_CONNECTED);
+
+		/* XXX */
+		{
+			uint8_t *edid;
+			uint32_t edidlen;
+			if (dwc_hdmi_get_edid(sc->sc_dev, &edid, &edidlen) == 0)
+				edid_print(&sc->sc_edid_info);
+		}
 	}
 
 	/* Finished with the interrupt hook */
@@ -845,6 +855,107 @@ dwc_hdmi_set_videomode(device_t dev, const struct videomode *mode)
 	dwc_hdmi_detect_hdmi(sc);
 
 	dwc_hdmi_set_mode(sc);
+
+	return (0);
+}
+
+int
+dwc_hdmi_i2cm_reset(device_t dev, u_char speed, u_char addr, u_char *oldaddr)
+{
+	struct dwc_hdmi_softc *sc;
+	uint32_t val;
+
+	sc = device_get_softc(dev);
+
+	/* Soft reset */
+	WR1(sc, HDMI_I2CM_SOFTRSTZ, 0);
+
+	/* Select Fast Mode or Standard Mode */
+	val = RD1(sc, HDMI_I2CM_DIV);
+	switch (speed) {
+	case IIC_FAST:
+		val |= HDMI_I2CM_FAST_STD_MODE;
+		break;
+	case IIC_SLOW:
+	case IIC_UNKNOWN:
+	case IIC_FASTEST:
+	default:
+		val &= ~HDMI_I2CM_FAST_STD_MODE;
+		break;
+	}
+	WR1(sc, HDMI_I2CM_DIV, val);
+
+	return (0);
+}
+
+static void
+dwc_hdmi_i2cm_wait_i2c_done(struct dwc_hdmi_softc *sc, int msec)
+{
+	uint8_t val;
+
+	val = RD1(sc, HDMI_IH_I2CM_STAT0) &
+	    (HDMI_IH_I2CM_STAT0_DONE | HDMI_IH_I2CM_STAT0_ERROR);
+	while (val == 0) {
+		pause("HDMI_I2CM", hz/100);
+		msec -= 10;
+		if (msec <= 0)
+			return;
+		val = RD1(sc, HDMI_IH_I2CM_STAT0) &
+		    (HDMI_IH_I2CM_STAT0_DONE | HDMI_IH_I2CM_STAT0_ERROR);
+	}
+}
+
+int
+dwc_hdmi_i2cm_transfer(device_t dev, struct iic_msg *msgs, uint32_t nmsgs)
+{
+	struct dwc_hdmi_softc *sc;
+	uint8_t segment, addr;
+	struct iic_msg *rmsg;
+	int resid;
+
+	sc = device_get_softc(dev);
+
+	if (nmsgs == 2) {
+		/* Write address and read data, segment is 0 */
+		if ((msgs[0].flags & IIC_M_RD) != 0 || msgs[0].len != 1 ||
+		    (msgs[1].flags & IIC_M_RD) == 0)
+			return (EINVAL);
+		addr = 0;
+		segment = msgs[0].buf[0];
+		rmsg = &msgs[1];
+	} else if (nmsgs == 3) {
+		/* Write segment and address, read data. */
+		if ((msgs[0].flags & IIC_M_RD) != 0 || msgs[0].len != 1 ||
+		    (msgs[1].flags & IIC_M_RD) != 0 || msgs[1].len != 1 ||
+		    (msgs[2].flags & IIC_M_RD) == 0)
+			return (EINVAL);
+		addr = msgs[0].buf[0];
+		segment = msgs[1].buf[0];
+		rmsg = &msgs[2];
+	} else
+		return (EINVAL);
+
+	WR1(sc, HDMI_I2CM_INT, HDMI_I2CM_INT_DONE_POL);
+	WR1(sc, HDMI_I2CM_SS_SCL_HCNT_0_ADDR, 0xd8);
+	WR1(sc, HDMI_I2CM_SS_SCL_LCNT_0_ADDR, 0xfe);
+
+	for (resid = rmsg->len; resid > 0; resid--, addr++) {
+		WR1(sc, HDMI_IH_I2CM_STAT0, RD1(sc, HDMI_IH_I2CM_STAT0));
+		WR1(sc, HDMI_I2CM_SLAVE, I2C_DDC_ADDR >> 1);
+		WR1(sc, HDMI_I2CM_SEGADDR, I2C_DDC_SEGADDR >> 1);
+		WR1(sc, HDMI_I2CM_SEGPTR, segment);
+		WR1(sc, HDMI_I2CM_ADDRESS, addr);
+		WR1(sc, HDMI_I2CM_OPERATION, HDMI_PHY_I2CM_OPERATION_ADDR_READ);
+
+		dwc_hdmi_i2cm_wait_i2c_done(sc, 1000);
+
+		rmsg->buf[rmsg->len - resid] = RD1(sc, HDMI_I2CM_DATAI);
+	}
+
+device_printf(dev, "read %d bytes:", rmsg->len);
+for (int i = 0; i < rmsg->len; i++)
+	printf(" %02x", rmsg->buf[i]);
+printf("\n");
 
 	return (0);
 }

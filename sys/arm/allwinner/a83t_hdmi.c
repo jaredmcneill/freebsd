@@ -49,6 +49,9 @@ __FBSDID("$FreeBSD$");
 #include <dev/videomode/videomode.h>
 #include <dev/videomode/edidvar.h>
 
+#include <dev/iicbus/iiconf.h>
+#include <dev/iicbus/iicbus.h>
+
 #include <dev/hdmi/dwc_hdmi.h>
 
 #define	HDMI_READ_EN		0x10010
@@ -59,9 +62,11 @@ __FBSDID("$FreeBSD$");
 #define	 HDMI_SCRAMBLE_DISABLE	0x42494e47	/* "BING" */
 
 #include "hdmi_if.h"
+#include "iicbus_if.h"
 
 struct a83t_hdmi_softc {
 	struct dwc_hdmi_softc	base;
+	device_t		iicbus;
 	clk_t			clk_bus;
 	clk_t			clk_hdmi;
 	clk_t			clk_hdmi_ddc;
@@ -77,7 +82,17 @@ static struct ofw_compat_data compat_data[] = {
 static device_t
 a83t_hdmi_get_i2c_dev(device_t dev)
 {
-	return (NULL);
+	struct a83t_hdmi_softc *sc;
+
+	sc = device_get_softc(dev);
+
+	return (sc->iicbus);
+}
+
+static phandle_t
+a83t_hdmi_get_node(device_t bus, device_t dev)
+{
+	return (ofw_bus_get_node(bus));
 }
 
 static int
@@ -170,6 +185,10 @@ a83t_hdmi_attach(device_t dev)
 	bus_write_4(sc->base.sc_mem_res, HDMI_SCRAMBLE_EN,
 	    HDMI_SCRAMBLE_DISABLE);
 
+	sc->iicbus = device_add_child(dev, "iicbus", -1);
+
+	bus_generic_attach(dev);
+
 	return (dwc_hdmi_init(dev));
 
 out:
@@ -201,16 +220,26 @@ static device_method_t a83t_hdmi_methods[] = {
 	DEVMETHOD(hdmi_get_edid,	dwc_hdmi_get_edid),
 	DEVMETHOD(hdmi_set_videomode,	dwc_hdmi_set_videomode),
 
+	/* OFW methods */
+	DEVMETHOD(ofw_bus_get_node,	a83t_hdmi_get_node),
+
+	/* iicbus methods */
+	DEVMETHOD(iicbus_callback,	iicbus_null_callback),
+	DEVMETHOD(iicbus_reset,		dwc_hdmi_i2cm_reset),
+	DEVMETHOD(iicbus_transfer,	dwc_hdmi_i2cm_transfer),
+
 	DEVMETHOD_END
 };
 
 static driver_t a83t_hdmi_driver = {
-	"dwc_hdmi",
+	"iichb",
 	a83t_hdmi_methods,
 	sizeof(struct a83t_hdmi_softc)
 };
 
 static devclass_t a83t_hdmi_devclass;
 
+DRIVER_MODULE(iicbus, a83t_hdmi, iicbus_driver,
+    iicbus_devclass, 0, 0);
 DRIVER_MODULE(a83t_hdmi, simplebus, a83t_hdmi_driver,
     a83t_hdmi_devclass, 0, 0);
