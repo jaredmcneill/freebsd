@@ -165,6 +165,8 @@ __FBSDID("$FreeBSD$");
 #define	TCON_FILL_END0		0x308
 #define	TCON_FILL_DATA0		0x30c
 
+#define	TCON_XY(x, y)		(((x) << 16) | (y))
+
 struct de2fb_softc {
 	device_t		dev;
 	device_t		fbdev;
@@ -399,22 +401,22 @@ de2fb_setup_tcon(struct de2fb_softc *sc, const struct videomode *mode)
 	int interlace, start_delay;
 	uint32_t val;
 
-	interlace = !!(mode->flags & VID_INTERLACE);
-	start_delay = MAX(31, (mode->vtotal - mode->vdisplay) / (interlace ? 2 : 1) - 5);
+	interlace = (mode->flags & VID_INTERLACE) ? 2 : 1;
+	start_delay = MAX(31, (mode->vtotal - mode->vdisplay) / interlace - 5);
 
-	val = DE_XY(mode->hdisplay - 1, mode->vdisplay / (interlace ? 2 : 1) - 1);
+	val = TCON_XY(mode->hdisplay - 1, mode->vdisplay / interlace - 1);
 	TCON_WRITE(sc, TCON1_BASIC0, val);
 	TCON_WRITE(sc, TCON1_BASIC1, val);
 	TCON_WRITE(sc, TCON1_BASIC2, val);
-	val = DE_XY(mode->htotal - 1, mode->htotal - mode->hsync_start - 1);
+	val = TCON_XY(mode->htotal - 1, mode->htotal - mode->hsync_start - 1);
 	TCON_WRITE(sc, TCON1_BASIC3, val);
-	val = DE_XY(mode->vtotal * (interlace + 1), mode->vtotal - mode->vsync_start - 1);
+	val = TCON_XY(mode->vtotal * (3 - interlace), mode->vtotal - mode->vsync_start - 1);
 	TCON_WRITE(sc, TCON1_BASIC4, val);
-	val = DE_XY(mode->hsync_end - mode->hsync_start - 1,
+	val = TCON_XY(mode->hsync_end - mode->hsync_start - 1,
 	    mode->vsync_end - mode->vsync_start - 1);
 	TCON_WRITE(sc, TCON1_BASIC5, val);
 
-	TCON_WRITE(sc, TCON1_PS_CTL, DE_XY(1, 1));
+	TCON_WRITE(sc, TCON1_PS_CTL, TCON_XY(1, 1));
 
 	val = TCON1_IO_POL_IO2_INV;
 	if (mode->flags & VID_PVSYNC)
@@ -428,18 +430,21 @@ de2fb_setup_tcon(struct de2fb_softc *sc, const struct videomode *mode)
 	TCON_WRITE(sc, TCON_CEU_CTL, val);
 
 	val = TCON_READ(sc, TCON1_CTL);
-	if (interlace)
+	if (interlace == 2)
 		val |= TCON1_CTL_INTERLACE;
 	else
 		val &= ~TCON1_CTL_INTERLACE;
-	val &= ~TCON1_CTL_START_DELAY;
-	val |= (start_delay << TCON1_CTL_START_DELAY_SHIFT);
 	TCON_WRITE(sc, TCON1_CTL, val);
 
 	TCON_WRITE(sc, TCON_FILL_CTL, 0);
 	TCON_WRITE(sc, TCON_FILL_START0, mode->vtotal + 1);
 	TCON_WRITE(sc, TCON_FILL_END0, mode->vtotal);
 	TCON_WRITE(sc, TCON_FILL_DATA0, 0);
+
+	val = TCON_READ(sc, TCON1_CTL);
+	val &= ~TCON1_CTL_START_DELAY;
+	val |= (start_delay << TCON1_CTL_START_DELAY_SHIFT);
+	TCON_WRITE(sc, TCON1_CTL, val);
 
 	TCON_WRITE(sc, TCON1_IO_TRI, 0x0fffffff);
 
@@ -505,6 +510,9 @@ de2fb_configure(struct de2fb_softc *sc, const struct videomode *mode)
 	error = de2fb_setup_tcon(sc, mode);
 	if (error != 0)
 		return (error);
+
+	/* Enable timing controller */
+	de2fb_enable_tcon(sc, 1);
 
 	/* Attach framebuffer device */
 	sc->info.fb_name = device_get_nameunit(sc->dev);
@@ -642,12 +650,6 @@ de2fb_hdmi_event(void *arg, device_t hdmi_dev)
 		device_printf(sc->dev, "using %dx%d\n",
 		    mode->hdisplay, mode->vdisplay);
 
-	/* Disable HDMI */
-	HDMI_ENABLE(hdmi_dev, 0);
-
-	/* Disable timing controller */
-	de2fb_enable_tcon(sc, 0);
-
 	/* Configure DEBE and TCON */
 	error = de2fb_configure(sc, mode);
 	if (error != 0) {
@@ -659,14 +661,6 @@ de2fb_hdmi_event(void *arg, device_t hdmi_dev)
 	hdmi_mode.hskew = mode->hsync_end - mode->hsync_start;
 	hdmi_mode.flags |= VID_HSKEW;
 	HDMI_SET_VIDEOMODE(hdmi_dev, &hdmi_mode);
-
-	/* Enable timing controller */
-	de2fb_enable_tcon(sc, 1);
-
-	DELAY(HDMI_ENABLE_DELAY);
-
-	/* Enable HDMI */
-	HDMI_ENABLE(hdmi_dev, 1);
 }
 
 static int
