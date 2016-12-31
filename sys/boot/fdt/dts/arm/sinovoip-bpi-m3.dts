@@ -113,6 +113,10 @@
 	rx-delay = <0x7>;
 };
 
+&hdmi {
+	status = "okay";
+};
+
 &i2c0 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&i2c0_pins_a>;
