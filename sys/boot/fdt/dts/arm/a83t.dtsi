@@ -272,6 +272,8 @@
 		hdmi: hdmi@01ee0000 {
 			compatible = "allwinner,sun8i-a83t-hdmi";
 			reg = <0x01ee0000 0x20000>;
+			pinctrl-names = "default";
+			pinctrl-0 = <&hdmi_pins_a>;
 			clocks = <&bus_gates 43>, <&hdmi_clk>, <&hdmi_ddc_clk>;
 			clock-names = "bus", "clock", "ddc-clock";
 			resets = <&ahb_reset 42>, <&ahb_reset 43>;
@@ -328,6 +330,13 @@
 	i2c2_pins_a: i2c2@0 {
 		allwinner,pins = "PH4", "PH5";
 		allwinner,function = "i2c2";
+		allwinner,drive = <SUN4I_PINCTRL_10_MA>;
+		allwinner,pull = <SUN4I_PINCTRL_NO_PULL>;
+	};
+
+	hdmi_pins_a: hdmiddc@0 {
+		allwinner,pins = "PH6", "PH7", "PH8";
+		allwinner,function = "hdmiddc";
 		allwinner,drive = <SUN4I_PINCTRL_10_MA>;
 		allwinner,pull = <SUN4I_PINCTRL_NO_PULL>;
 	};
