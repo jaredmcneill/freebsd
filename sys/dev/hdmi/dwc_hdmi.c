@@ -709,19 +709,9 @@ dwc_hdmi_detect_cable(void *arg)
 	sc = arg;
 
 	stat = RD1(sc, HDMI_IH_PHY_STAT0);
-	if (bootverbose)
-		device_printf(sc->sc_dev, "HDMI_IH_PHY_STAT0 = %02x\n", stat);
 	if ((stat & HDMI_IH_PHY_STAT0_HPD) != 0) {
 		EVENTHANDLER_INVOKE(hdmi_event, sc->sc_dev,
 		    HDMI_EVENT_CONNECTED);
-
-		/* XXX */
-		{
-			uint8_t *edid;
-			uint32_t edidlen;
-			if (dwc_hdmi_get_edid(sc->sc_dev, &edid, &edidlen) == 0)
-				edid_print(&sc->sc_edid_info);
-		}
 	}
 
 	/* Finished with the interrupt hook */
