@@ -910,8 +910,8 @@ dwc_hdmi_i2cm_transfer(device_t dev, struct iic_msg *msgs, uint32_t nmsgs)
 		if ((msgs[0].flags & IIC_M_RD) != 0 || msgs[0].len != 1 ||
 		    (msgs[1].flags & IIC_M_RD) == 0)
 			return (EINVAL);
-		addr = 0;
-		segment = msgs[0].buf[0];
+		segment = 0;
+		addr = msgs[0].buf[0];
 		rmsg = &msgs[1];
 	} else if (nmsgs == 3) {
 		/* Write segment and address, read data. */
@@ -919,8 +919,8 @@ dwc_hdmi_i2cm_transfer(device_t dev, struct iic_msg *msgs, uint32_t nmsgs)
 		    (msgs[1].flags & IIC_M_RD) != 0 || msgs[1].len != 1 ||
 		    (msgs[2].flags & IIC_M_RD) == 0)
 			return (EINVAL);
-		addr = msgs[0].buf[0];
-		segment = msgs[1].buf[0];
+		segment = msgs[0].buf[0];
+		addr = msgs[1].buf[0];
 		rmsg = &msgs[2];
 	} else
 		return (EINVAL);
@@ -941,11 +941,6 @@ dwc_hdmi_i2cm_transfer(device_t dev, struct iic_msg *msgs, uint32_t nmsgs)
 
 		rmsg->buf[rmsg->len - resid] = RD1(sc, HDMI_I2CM_DATAI);
 	}
-
-device_printf(dev, "read %d bytes:", rmsg->len);
-for (int i = 0; i < rmsg->len; i++)
-	printf(" %02x", rmsg->buf[i]);
-printf("\n");
 
 	return (0);
 }
