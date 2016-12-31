@@ -54,6 +54,7 @@ __FBSDID("$FreeBSD$");
 
 static struct ofw_compat_data compat_data[] = {
 	{ "allwinner,sun4i-a10-codec-clk",	1 },
+	{ "allwinner,sun8i-a83t-hdmi-ddc-clk",	1 },
 	{ NULL, 0 }
 };
 
@@ -87,7 +88,7 @@ aw_codecclk_probe(device_t dev)
 	if (ofw_bus_search_compatible(dev, compat_data)->ocd_data == 0)
 		return (ENXIO);
 
-	device_set_desc(dev, "Allwinner CODEC Clock");
+	device_set_desc(dev, "Allwinner Module Clock Gate");
 	return (BUS_PROBE_DEFAULT);
 }
 
@@ -128,6 +129,10 @@ aw_codecclk_attach(device_t dev)
 
 	error = aw_codecclk_create(dev, paddr, clkdom,
 	    clk_get_name(clk_parent), names[0], 1);
+	if (error != 0) {
+		device_printf(dev, "cannot create gate clock\n");
+		goto fail;
+	}
 
 	if (clkdom_finit(clkdom) != 0) {
 		device_printf(dev, "cannot finalize clkdom initialization\n");

@@ -171,6 +171,17 @@ __FBSDID("$FreeBSD$");
 #define	A83T_PLLCPUX_POSTDIV_M		(0x3 << 0)
 #define	A83T_PLLCPUX_POSTDIV_M_SHIFT	0
 
+#define	A83T_PLLVIDEO_SDM_EN		(1 << 24)
+#define	A83T_PLLVIDEO_CLOCK_OUTPUT_DIS	(1 << 20)
+#define	A83T_PLLVIDEO_DIV2		(1 << 18)
+#define	A83T_PLLVIDEO_DIV		(1 << 16)
+#define	A83T_PLLVIDEO_FACTOR_N		(0xff << 8)
+#define	A83T_PLLVIDEO_FACTOR_N_SHIFT	8
+#define	A83T_PLLVIDEO_FACTOR_N_MIN	12
+#define	A83T_PLLVIDEO_FACTOR_N_MAX	255
+#define	A83T_PLLVIDEO_OUT_EXT_DIVP	(0x3 << 0)
+#define	A83T_PLLVIDEO_OUT_EXT_DIVP_SHIFT 0
+
 #define	H3_PLL2_LOCK			(1 << 28)
 #define	H3_PLL2_SDM_EN			(1 << 24)
 #define	H3_PLL2_POST_DIV		(0xf << 16)
@@ -302,6 +313,7 @@ enum aw_pll_type {
 	AWPLL_A64_PLLHSIC,
 	AWPLL_A80_PLL4,
 	AWPLL_A83T_PLLCPUX,
+	AWPLL_A83T_PLLVIDEO,
 	AWPLL_H3_PLL1,
 	AWPLL_H3_PLL2,
 };
@@ -1102,6 +1114,85 @@ a83t_pllcpux_set_freq(struct aw_pll_sc *sc, uint64_t fin, uint64_t *fout,
 	return (0);
 }
 
+static int
+a83t_pllvideo_recalc(struct aw_pll_sc *sc, uint64_t *freq)
+{
+	uint32_t val, n, div, p;
+
+	DEVICE_LOCK(sc);
+	PLL_READ(sc, &val);
+	DEVICE_UNLOCK(sc);
+
+	n = (val & A83T_PLLVIDEO_FACTOR_N) >> A83T_PLLVIDEO_FACTOR_N_SHIFT;
+	div = 1 + ((val & A83T_PLLVIDEO_DIV) != 0 ? 1 : 0);
+	p = 1 << ((val & A83T_PLLVIDEO_OUT_EXT_DIVP) >>
+	    A83T_PLLVIDEO_OUT_EXT_DIVP_SHIFT);
+
+	/* The PLL output is 24MHz*N/(Div+1)/P */
+	*freq = (*freq * n) / div / p;
+
+	return (0);
+}
+
+static int
+a83t_pllvideo_set_freq(struct aw_pll_sc *sc, uint64_t fin, uint64_t *fout,
+    int flags)
+{
+	uint32_t val, n, div, p;
+
+	/*
+	 * With Div=2 and P=/4, we can get 297MHz and 270MHz by adjusting
+	 * only N.
+	 */
+	div = 1;
+	p = 2;
+
+	if (*fout == 297000000)
+		n = 99;
+	else if (*fout == 270000000)
+		n = 90;
+	else
+		return (ERANGE);
+
+	if ((flags & CLK_SET_DRYRUN) != 0)
+		return (0);
+
+	DEVICE_LOCK(sc);
+	PLL_READ(sc, &val);
+	val &= ~(A83T_PLLVIDEO_FACTOR_N | A83T_PLLVIDEO_OUT_EXT_DIVP);
+	val |= (n << A83T_PLLVIDEO_FACTOR_N_SHIFT);
+	val |= (p << A83T_PLLVIDEO_OUT_EXT_DIVP_SHIFT);
+	if (div)
+		val |= A83T_PLLVIDEO_DIV;
+	else
+		val &= ~A83T_PLLVIDEO_DIV;
+	PLL_WRITE(sc, val);
+	DEVICE_UNLOCK(sc);
+
+	return (0);
+}
+
+static int
+a83t_pllvideo_init(device_t dev, bus_addr_t reg, struct clknode_init_def *def)
+{
+	uint32_t val;
+
+	/* Allow changing PLL frequency while enabled */
+	def->flags = CLK_NODE_GLITCH_FREE;
+
+	/* Set PLL to 297MHz */
+	CLKDEV_DEVICE_LOCK(dev);
+	CLKDEV_READ_4(dev, reg, &val);
+	val &= ~(A83T_PLLVIDEO_FACTOR_N | A83T_PLLVIDEO_OUT_EXT_DIVP);
+	val |= (99 << A83T_PLLVIDEO_FACTOR_N_SHIFT);
+	val |= (2 << A83T_PLLVIDEO_OUT_EXT_DIVP_SHIFT);
+	val |= A83T_PLLVIDEO_DIV;
+	CLKDEV_WRITE_4(dev, reg, val);
+	CLKDEV_DEVICE_UNLOCK(dev);
+
+	return (0);
+}
+
 #define	PLL(_type, _recalc, _set_freq, _init)	\
 	[(_type)] = {				\
 		.recalc = (_recalc),		\
@@ -1121,6 +1212,7 @@ static struct aw_pll_funcs aw_pll_func[] = {
 	PLL(AWPLL_A31_PLL6, a31_pll6_recalc, NULL, a31_pll6_init),
 	PLL(AWPLL_A80_PLL4, a80_pll4_recalc, NULL, NULL),
 	PLL(AWPLL_A83T_PLLCPUX, a83t_pllcpux_recalc, a83t_pllcpux_set_freq, NULL),
+	PLL(AWPLL_A83T_PLLVIDEO, a83t_pllvideo_recalc, a83t_pllvideo_set_freq, a83t_pllvideo_init),
 	PLL(AWPLL_A64_PLLHSIC, a64_pllhsic_recalc, NULL, a64_pllhsic_init),
 	PLL(AWPLL_H3_PLL1, a23_pll1_recalc, h3_pll1_set_freq, NULL),
 	PLL(AWPLL_H3_PLL2, h3_pll2_recalc, h3_pll2_set_freq, NULL),
@@ -1137,6 +1229,7 @@ static struct ofw_compat_data compat_data[] = {
 	{ "allwinner,sun6i-a31-pll6-clk",	AWPLL_A31_PLL6 },
 	{ "allwinner,sun8i-a23-pll1-clk",	AWPLL_A23_PLL1 },
 	{ "allwinner,sun8i-a83t-pllcpux-clk",	AWPLL_A83T_PLLCPUX },
+	{ "allwinner,sun8i-a83t-pllvideo-clk",	AWPLL_A83T_PLLVIDEO },
 	{ "allwinner,sun8i-h3-pll1-clk",	AWPLL_H3_PLL1 },
 	{ "allwinner,sun8i-h3-pll2-clk",	AWPLL_H3_PLL2 },
 	{ "allwinner,sun9i-a80-pll4-clk",	AWPLL_A80_PLL4 },

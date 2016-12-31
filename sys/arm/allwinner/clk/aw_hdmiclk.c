@@ -51,26 +51,41 @@ __FBSDID("$FreeBSD$");
 #include "clkdev_if.h"
 
 #define	SCLK_GATING		(1 << 31)
-#define	CLK_SRC_SEL		(0x3 << 24)
-#define	CLK_SRC_SEL_SHIFT	24
-#define	CLK_SRC_SEL_MAX		0x3
-#define	CLK_RATIO_N		(0x3 << 16)
-#define	CLK_RATIO_N_SHIFT	16
-#define	CLK_RATIO_N_MAX		0x3
-#define	CLK_RATIO_M		(0x1f << 0)
-#define	CLK_RATIO_M_SHIFT	0
-#define	CLK_RATIO_M_MAX		0x1f
 
-#define	CLK_IDX_PLL3_1X		0
+#define	A10_CLK_SRC_SEL		(0x3 << 24)
+#define	A10_CLK_SRC_SEL_SHIFT	24
+#define	A10_CLK_SRC_SEL_MAX	0x3
+#define	A10_CLK_RATIO_N		(0x3 << 16)
+#define	A10_CLK_RATIO_N_SHIFT	16
+#define	A10_CLK_RATIO_N_MAX	0x3
+#define	A10_CLK_RATIO_M		(0x1f << 0)
+#define	A10_CLK_RATIO_M_SHIFT	0
+#define	A10_CLK_RATIO_M_MAX	0x1f
+
+#define	A10_CLK_IDX_PLL3_1X	0
+
+#define	A83T_CLK_SRC_SEL	(0x3 << 24)
+#define	A83T_CLK_SRC_SEL_SHIFT	24
+#define	A83T_CLK_SRC_SEL_MAX	0x3
+#define	A83T_CLK_RATIO_M	(0xf << 0)
+#define	A83T_CLK_RATIO_M_SHIFT	0
+#define	A83T_CLK_RATIO_M_MAX	0xf
+
+enum aw_hdmiclk_type {
+	AW_HDMICLK_A10 = 1,
+	AW_HDMICLK_A83T,
+};
 
 static struct ofw_compat_data compat_data[] = {
-	{ "allwinner,sun4i-a10-hdmi-clk",	1 },
+	{ "allwinner,sun4i-a10-hdmi-clk",	AW_HDMICLK_A10 },
+	{ "allwinner,sun8i-a83t-hdmi-clk",	AW_HDMICLK_A83T },
 	{ NULL, 0 }
 };
 
 struct aw_hdmiclk_sc {
-	device_t	clkdev;
-	bus_addr_t	reg;
+	device_t		clkdev;
+	bus_addr_t		reg;
+	enum aw_hdmiclk_type	type;
 };
 
 #define	HDMICLK_READ(sc, val)	CLKDEV_READ_4((sc)->clkdev, (sc)->reg, (val))
@@ -87,12 +102,12 @@ aw_hdmiclk_init(struct clknode *clk, device_t dev)
 	sc = clknode_get_softc(clk);
 
 	/* Select PLL3(1X) clock source */
-	index = CLK_IDX_PLL3_1X;
+	index = A10_CLK_IDX_PLL3_1X;
 
 	DEVICE_LOCK(sc);
 	HDMICLK_READ(sc, &val);
-	val &= ~CLK_SRC_SEL;
-	val |= (index << CLK_SRC_SEL_SHIFT);
+	val &= ~A10_CLK_SRC_SEL;
+	val |= (index << A10_CLK_SRC_SEL_SHIFT);
 	HDMICLK_WRITE(sc, val);
 	DEVICE_UNLOCK(sc);
 
@@ -108,13 +123,13 @@ aw_hdmiclk_set_mux(struct clknode *clk, int index)
 
 	sc = clknode_get_softc(clk);
 
-	if (index < 0 || index > CLK_SRC_SEL_MAX)
+	if (index < 0 || index > A10_CLK_SRC_SEL_MAX)
 		return (ERANGE);
 
 	DEVICE_LOCK(sc);
 	HDMICLK_READ(sc, &val);
-	val &= ~CLK_SRC_SEL;
-	val |= (index << CLK_SRC_SEL_SHIFT);
+	val &= ~A10_CLK_SRC_SEL;
+	val |= (index << A10_CLK_SRC_SEL_SHIFT);
 	HDMICLK_WRITE(sc, val);
 	DEVICE_UNLOCK(sc);
 
@@ -142,7 +157,7 @@ aw_hdmiclk_set_gate(struct clknode *clk, bool enable)
 }
 
 static int
-aw_hdmiclk_recalc_freq(struct clknode *clk, uint64_t *freq)
+a10_hdmiclk_recalc_freq(struct clknode *clk, uint64_t *freq)
 {
 	struct aw_hdmiclk_sc *sc;
 	uint32_t val, m, n;
@@ -153,8 +168,8 @@ aw_hdmiclk_recalc_freq(struct clknode *clk, uint64_t *freq)
 	HDMICLK_READ(sc, &val);
 	DEVICE_UNLOCK(sc);
 
-	n = 1 << ((val & CLK_RATIO_N) >> CLK_RATIO_N_SHIFT);
-	m = ((val & CLK_RATIO_M) >> CLK_RATIO_M_SHIFT) + 1;
+	n = 1 << ((val & A10_CLK_RATIO_N) >> A10_CLK_RATIO_N_SHIFT);
+	m = ((val & A10_CLK_RATIO_M) >> A10_CLK_RATIO_M_SHIFT) + 1;
 
 	*freq = *freq / n / m;
 
@@ -162,7 +177,43 @@ aw_hdmiclk_recalc_freq(struct clknode *clk, uint64_t *freq)
 }
 
 static int
-aw_hdmiclk_set_freq(struct clknode *clk, uint64_t fin, uint64_t *fout,
+a83t_hdmiclk_recalc_freq(struct clknode *clk, uint64_t *freq)
+{
+	struct aw_hdmiclk_sc *sc;
+	uint32_t val, m;
+
+	sc = clknode_get_softc(clk);
+
+	DEVICE_LOCK(sc);
+	HDMICLK_READ(sc, &val);
+	DEVICE_UNLOCK(sc);
+
+	m = ((val & A83T_CLK_RATIO_M) >> A83T_CLK_RATIO_M_SHIFT) + 1;
+
+	*freq = *freq / m;
+
+	return (0);
+}
+
+static int
+aw_hdmiclk_recalc_freq(struct clknode *clk, uint64_t *freq)
+{
+	struct aw_hdmiclk_sc *sc;
+
+	sc = clknode_get_softc(clk);
+
+	switch (sc->type) {
+	case AW_HDMICLK_A10:
+		return (a10_hdmiclk_recalc_freq(clk, freq));
+	case AW_HDMICLK_A83T:
+		return (a83t_hdmiclk_recalc_freq(clk, freq));
+	default:
+		return (EINVAL);
+	}
+}
+
+static int
+a10_hdmiclk_set_freq(struct clknode *clk, uint64_t fin, uint64_t *fout,
     int flags, int *stop)
 {
 	struct aw_hdmiclk_sc *sc;
@@ -174,8 +225,8 @@ aw_hdmiclk_set_freq(struct clknode *clk, uint64_t fin, uint64_t *fout,
 	best_n = best_m = 0;
 	best_diff = (int64_t)*fout; 
 
-	for (n = 0; n <= CLK_RATIO_N_MAX; n++)
-		for (m = 0; m <= CLK_RATIO_M_MAX; m++) {
+	for (n = 0; n <= A10_CLK_RATIO_N_MAX; n++)
+		for (m = 0; m <= A10_CLK_RATIO_M_MAX; m++) {
 			cur_freq = fin / (1 << n) / (m + 1);
 			cur_diff = (int64_t)*fout - cur_freq;
 			if (cur_diff >= 0 && cur_diff < best_diff) {
@@ -196,13 +247,63 @@ aw_hdmiclk_set_freq(struct clknode *clk, uint64_t fin, uint64_t *fout,
 
 	DEVICE_LOCK(sc);
 	HDMICLK_READ(sc, &val);
-	val &= ~(CLK_RATIO_N | CLK_RATIO_M);
-	val |= (best_n << CLK_RATIO_N_SHIFT);
-	val |= (best_m << CLK_RATIO_M_SHIFT);
+	val &= ~(A10_CLK_RATIO_N | A10_CLK_RATIO_M);
+	val |= (best_n << A10_CLK_RATIO_N_SHIFT);
+	val |= (best_m << A10_CLK_RATIO_M_SHIFT);
 	HDMICLK_WRITE(sc, val);
 	DEVICE_UNLOCK(sc);
 
 	return (0);
+}
+
+static int
+a83t_hdmiclk_set_freq(struct clknode *clk, uint64_t fin, uint64_t *fout,
+    int flags, int *stop)
+{
+	struct aw_hdmiclk_sc *sc;
+	uint32_t div_l, div_h, div, val;
+
+	sc = clknode_get_softc(clk);
+
+	div_l = howmany(fin, *fout);
+	div_h = fin / *fout;
+	div = abs((int64_t)*fout - (fin / div_l)) <
+	    abs((int64_t)*fout - (fin / div_h)) ? div_l : div_h;
+	if (div == 0)
+		div = 1;
+
+	*fout = fin / div;
+	*stop = 1;
+
+	if ((flags & CLK_SET_DRYRUN) != 0)
+		return (0);
+
+	DEVICE_LOCK(sc);
+	HDMICLK_READ(sc, &val);
+	val &= ~A83T_CLK_RATIO_M;
+	val |= ((div - 1) << A83T_CLK_RATIO_M_SHIFT);
+	HDMICLK_WRITE(sc, val);
+	DEVICE_UNLOCK(sc);
+
+	return (0);
+}
+
+static int
+aw_hdmiclk_set_freq(struct clknode *clk, uint64_t fin, uint64_t *fout,
+    int flags, int *stop)
+{
+	struct aw_hdmiclk_sc *sc;
+
+	sc = clknode_get_softc(clk);
+
+	switch (sc->type) {
+	case AW_HDMICLK_A10:
+		return (a10_hdmiclk_set_freq(clk, fin, fout, flags, stop));
+	case AW_HDMICLK_A83T:
+		return (a83t_hdmiclk_set_freq(clk, fin, fout, flags, stop));
+	default:
+		return (EINVAL);
+	}
 }
 
 static clknode_method_t aw_hdmiclk_clknode_methods[] = {
@@ -280,6 +381,7 @@ aw_hdmiclk_attach(device_t dev)
 	sc = clknode_get_softc(clk);
 	sc->reg = paddr;
 	sc->clkdev = device_get_parent(dev);
+	sc->type = ofw_bus_search_compatible(dev, compat_data)->ocd_data;
 
 	clknode_register(clkdom, clk);
 
