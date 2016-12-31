@@ -131,6 +131,14 @@
 			clock-output-names = "emac_tx";
 		};
 
+		pll_video0: clk@01c20010 {
+			#clock-cells = <0>;
+			compatible = "allwinner,sun8i-a83t-pllvideo-clk";
+			reg = <0x01c20010 0x4>;
+			clocks = <&osc24M>;
+			clock-output-names = "pll_video0";
+		};
+
 		pll_video1: clk@01c2004c {
 			#clock-cells = <0>;
 			compatible = "allwinner,sun8i-a83t-pllvideo-clk";
@@ -153,6 +161,22 @@
 			reg = <0x01c20154 0x4>;
 			clocks = <&osc24M>;
 			clock-output-names = "hdmi_ddc";
+		};
+
+		pll_de: clk@01c20048 {
+			#clock-cells = <0>;
+			compatible = "allwinner,sun8i-a83t-pllde-clk";
+			reg = <0x01c20048 0x4>;
+			clocks = <&osc24M>;
+			clock-output-names = "pll_de";
+		};
+
+		tcon0_clk: clk@01c20118 {
+			#clock-cells = <0>;
+			compatible = "allwinner,sun8i-a83t-tcon-clk";
+			reg = <0x01c20118 0x4>;
+			clocks = <&pll_video0>;
+			clock-output-names = "tcon0";
 		};
 	};
 
@@ -267,6 +291,18 @@
 			reg = <0x01f04000 0x400>;
 			interrupts = <GIC_SPI 41 IRQ_TYPE_LEVEL_HIGH>;
 			#thermal-sensor-cells = <0>;
+		};
+
+		fb: fb@01000000 {
+			compatible = "allwinner,sun8i-a83t-fb";
+			reg = <0x01000000 0x400000>,	/* DE */
+			      <0x01c0c000 0x400>;	/* TCON */
+			clocks = <&bus_gates 44>, <&pll_de>,
+				 <&bus_gates 36>, <&tcon0_clk>;
+			clock-names = "gate_de", "clock_de",
+				      "gate_tcon0", "clock_tcon0";
+			resets = <&ahb_reset 44>, <&ahb_reset 35>;
+			reset-names = "de", "tcon0";
 		};
 
 		hdmi: hdmi@01ee0000 {
