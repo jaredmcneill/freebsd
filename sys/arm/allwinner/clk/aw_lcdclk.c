@@ -77,6 +77,14 @@ __FBSDID("$FreeBSD$");
 #define	CH1_CLK_DIV_RATIO_M		(0x1f << 0)
 #define	CH1_CLK_DIV_RATIO_M_SHIFT	0
 
+/* A83T TCON1 */
+#define	A83T_TCON1_SCLK_GATING		(1 << 31)
+#define	A83T_TCON1_SEL			(0x3 << 24)
+#define	A83T_TCON1_SEL_SHIFT		24
+#define	A83T_TCON1_SEL_PLL_VIDEO1	0
+#define	A83T_TCON1_DIV_RATIO_M		(0xf << 0)
+#define	A83T_TCON1_DIV_RATIO_M_SHIFT	0
+
 #define	TCON_PLLREF			3000000ULL
 #define	TCON_PLLREF_FRAC1		297000000ULL
 #define	TCON_PLLREF_FRAC2		270000000ULL
@@ -88,16 +96,16 @@ __FBSDID("$FreeBSD$");
 #define	CLK_IDX_CH1_SCLK1		0
 #define	CLK_IDX_CH1_SCLK2		1
 
-#define	CLK_IDX_
-
 enum aw_lcdclk_type {
 	AW_LCD_CH0 = 1,
 	AW_LCD_CH1,
+	A83T_TCON1,
 };
 
 static struct ofw_compat_data compat_data[] = {
 	{ "allwinner,sun4i-a10-lcd-ch0-clk",	AW_LCD_CH0 },
 	{ "allwinner,sun4i-a10-lcd-ch1-clk",	AW_LCD_CH1 },
+	{ "allwinner,sun8i-a83t-tcon1-clk",	A83T_TCON1 },
 	{ NULL, 0 }
 };
 
@@ -186,6 +194,9 @@ aw_lcdclk_init(struct clknode *clk, device_t dev)
 			return (ENXIO);
 		}
 		break;
+	case A83T_TCON1:
+		index = (val & A83T_TCON1_SEL) >> A83T_TCON1_SEL_SHIFT;
+		break;
 	default:
 		return (ENXIO);
 	}
@@ -225,6 +236,16 @@ aw_lcdclk_set_mux(struct clknode *clk, int index)
 			return (ENXIO);
 		}
 		break;
+	case A83T_TCON1:
+		if (index != A83T_TCON1_SEL_PLL_VIDEO1)
+			return (ENXIO);
+		DEVICE_LOCK(sc);
+		LCDCLK_READ(sc, &val);
+		val &= ~A83T_TCON1_SEL;
+		val |= (A83T_TCON1_SEL_PLL_VIDEO1 << A83T_TCON1_SEL_SHIFT);
+		LCDCLK_WRITE(sc, val);
+		DEVICE_UNLOCK(sc);
+		break;
 	default:
 		return (ENXIO);
 	}
@@ -248,6 +269,9 @@ aw_lcdclk_set_gate(struct clknode *clk, bool enable)
 		mask = (sc->id == CLK_IDX_CH1_SCLK1) ? CH1_SCLK1_GATING :
 		    CH1_SCLK2_GATING;
 		break;
+	case A83T_TCON1:
+		mask = A83T_TCON1_SCLK_GATING;
+		break;
 	default:
 		return (ENXIO);
 	}
@@ -268,18 +292,30 @@ static int
 aw_lcdclk_recalc_freq(struct clknode *clk, uint64_t *freq)
 {
 	struct aw_lcdclk_softc *sc;
-	uint32_t val, m, src_sel;
+	uint32_t val, m, src_sel, div_mask, div_shift;
 
 	sc = clknode_get_softc(clk);
 
-	if (sc->type != AW_LCD_CH1)
+	switch (sc->type) {
+	case AW_LCD_CH0:
 		return (0);
+	case AW_LCD_CH1:
+		div_mask = CH1_CLK_DIV_RATIO_M;
+		div_shift = CH1_CLK_DIV_RATIO_M_SHIFT;
+		break;
+	case A83T_TCON1:
+		div_mask = A83T_TCON1_DIV_RATIO_M;
+		div_shift = A83T_TCON1_DIV_RATIO_M_SHIFT;
+		break;
+	default:
+		return (EINVAL);
+	}
 
 	DEVICE_LOCK(sc);
 	LCDCLK_READ(sc, &val);
 	DEVICE_UNLOCK(sc);
 
-	m = ((val & CH1_CLK_DIV_RATIO_M) >> CH1_CLK_DIV_RATIO_M_SHIFT) + 1;
+	m = ((val & div_mask) >> div_shift) + 1;
 	*freq = *freq / m;
 
 	if (sc->id == CLK_IDX_CH1_SCLK1) {
@@ -392,20 +428,39 @@ aw_lcdclk_set_freq(struct clknode *clk, uint64_t fin, uint64_t *fout,
 	struct clknode *parent_clk;
 	const char **parent_names;
 	uint64_t pll_freq;
-	uint32_t val, src_sel;
+	uint32_t val, src_sel, div_mask, div_shift;
 	int error, tcon_pll_div;
 
 	sc = clknode_get_softc(clk);
 
-	if (sc->type == AW_LCD_CH0) {
+	switch (sc->type) {
+	case AW_LCD_CH0:
 		*stop = 0;
 		return (0);
+	case AW_LCD_CH1:
+		if (sc->id != CLK_IDX_CH1_SCLK2)
+			return (ENXIO);
+		src_sel = calc_tcon_pll(fin, *fout, &pll_freq, &tcon_pll_div);
+		div_mask = CH1_CLK_DIV_RATIO_M;
+		div_shift = CH1_CLK_DIV_RATIO_M_SHIFT;
+		break;
+	case A83T_TCON1:
+		src_sel = A83T_TCON1_SEL_PLL_VIDEO1;
+		div_mask = A83T_TCON1_DIV_RATIO_M;
+		div_shift = A83T_TCON1_DIV_RATIO_M_SHIFT;
+		if ((270000000 * 2) % *fout == 0)
+			pll_freq = 270000000;
+		else if (297000000 % *fout == 0)
+			pll_freq = 297000000;
+		else
+			return (EINVAL);
+		tcon_pll_div = howmany(pll_freq, *fout);
+		if (tcon_pll_div < 1 || tcon_pll_div > 16)
+			return (ERANGE);
+		break;
+	default:
+		return (EINVAL);
 	}
-
-	if (sc->id != CLK_IDX_CH1_SCLK2)
-		return (ENXIO);
-
-	src_sel = calc_tcon_pll(fin, *fout, &pll_freq, &tcon_pll_div);
 
 	parent_names = clknode_get_parent_names(clk);
 	parent_clk = clknode_find_by_name(parent_names[src_sel]);
@@ -413,10 +468,12 @@ aw_lcdclk_set_freq(struct clknode *clk, uint64_t fin, uint64_t *fout,
 	if (parent_clk == NULL)
 		return (ERANGE);
 
+#if 0
 	/* Fetch input frequency */
 	error = clknode_get_freq(parent_clk, &pll_freq);
 	if (error != 0)
 		return (error);
+#endif
 
 	*fout = pll_freq / tcon_pll_div;
 	*stop = 1;
@@ -448,8 +505,8 @@ aw_lcdclk_set_freq(struct clknode *clk, uint64_t fin, uint64_t *fout,
 	/* Set LCD divisor */
 	DEVICE_LOCK(sc);
 	LCDCLK_READ(sc, &val);
-	val &= ~CH1_CLK_DIV_RATIO_M;
-	val |= ((tcon_pll_div - 1) << CH1_CLK_DIV_RATIO_M_SHIFT);
+	val &= ~div_mask;
+	val |= ((tcon_pll_div - 1) << div_shift);
 	LCDCLK_WRITE(sc, val);
 	DEVICE_UNLOCK(sc);
 
@@ -518,6 +575,9 @@ aw_lcdclk_probe(device_t dev)
 		break;
 	case AW_LCD_CH1:
 		device_set_desc(dev, "Allwinner LCD CH1 Clock");
+		break;
+	case A83T_TCON1:
+		device_set_desc(dev, "Allwinner A83T TCON1 Clock");
 		break;
 	default:
 		return (ENXIO);

@@ -55,7 +55,7 @@ __FBSDID("$FreeBSD$");
 static struct ofw_compat_data compat_data[] = {
 	{ "allwinner,sun4i-a10-codec-clk",	1 },
 	{ "allwinner,sun8i-a83t-hdmi-ddc-clk",	1 },
-	{ "allwinner,sun8i-a83t-tcon-clk",	1 },
+	{ "allwinner,sun8i-a83t-tcon0-clk",	1 },
 	{ NULL, 0 }
 };
 

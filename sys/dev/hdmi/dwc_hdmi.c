@@ -646,6 +646,30 @@ dwc_hdmi_set_mode(struct dwc_hdmi_softc *sc)
 	dwc_hdmi_tx_hdcp_config(sc);
 	dwc_hdmi_clear_overflow(sc);
 
+device_printf(sc->sc_dev, "IH_FC_STAT0        %02x\n", RD1(sc, HDMI_IH_FC_STAT0));
+device_printf(sc->sc_dev, "IH_FC_STAT1        %02x\n", RD1(sc, HDMI_IH_FC_STAT1));
+device_printf(sc->sc_dev, "IH_FC_STAT2        %02x\n", RD1(sc, HDMI_IH_FC_STAT2));
+device_printf(sc->sc_dev, "IH_AS_STAT0        %02x\n", RD1(sc, HDMI_IH_AS_STAT0));
+device_printf(sc->sc_dev, "IH_PHY_STAT0       %02x\n", RD1(sc, HDMI_IH_PHY_STAT0));
+device_printf(sc->sc_dev, "IH_I2CM_STAT0      %02x\n", RD1(sc, HDMI_IH_I2CM_STAT0));
+device_printf(sc->sc_dev, "IH_CEC_STAT0       %02x\n", RD1(sc, HDMI_IH_CEC_STAT0));
+device_printf(sc->sc_dev, "IH_VP_STAT0        %02x\n", RD1(sc, HDMI_IH_VP_STAT0));
+device_printf(sc->sc_dev, "IH_I2CMPHY_STAT0   %02x\n", RD1(sc, HDMI_IH_I2CMPHY_STAT0));
+device_printf(sc->sc_dev, "IH_AHBDMAAUD_STAT0 %02x\n", RD1(sc, HDMI_IH_AHBDMAAUD_STAT0));
+
+device_printf(sc->sc_dev, "VP_STATUS          %02x\n", RD1(sc, HDMI_VP_STATUS));
+device_printf(sc->sc_dev, "VP_STAT            %02x\n", RD1(sc, HDMI_VP_STAT));
+
+device_printf(sc->sc_dev, "FC_STAT0           %02x\n", RD1(sc, HDMI_FC_STAT0));
+device_printf(sc->sc_dev, "FC_STAT1           %02x\n", RD1(sc, HDMI_FC_STAT1));
+device_printf(sc->sc_dev, "FC_STAT2           %02x\n", RD1(sc, HDMI_FC_STAT2));
+
+device_printf(sc->sc_dev, "PHY_STAT0          %02x\n", RD1(sc, HDMI_PHY_STAT0));
+
+device_printf(sc->sc_dev, "AHB_DMA_STAT       %02x\n", RD1(sc, 0x3612));
+
+device_printf(sc->sc_dev, "MC_LOCKONCLOCK     %02x\n", RD1(sc, HDMI_MC_LOCKONCLOCK));
+
 	return (0);
 }
 
