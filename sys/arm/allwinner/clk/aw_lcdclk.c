@@ -468,13 +468,6 @@ aw_lcdclk_set_freq(struct clknode *clk, uint64_t fin, uint64_t *fout,
 	if (parent_clk == NULL)
 		return (ERANGE);
 
-#if 0
-	/* Fetch input frequency */
-	error = clknode_get_freq(parent_clk, &pll_freq);
-	if (error != 0)
-		return (error);
-#endif
-
 	*fout = pll_freq / tcon_pll_div;
 	*stop = 1;
 

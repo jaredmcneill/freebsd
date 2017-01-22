@@ -156,12 +156,6 @@ a83t_hdmi_attach(device_t dev)
 		goto out;
 	}
 
-	if (hwreset_deassert(sc->rst_hdmi0) != 0 ||
-	    hwreset_deassert(sc->rst_hdmi1) != 0) {
-		device_printf(dev, "Cannot de-assert resets\n");
-		err = ENXIO;
-		goto out;
-	}
 	if (clk_enable(sc->clk_hdmi_ddc) != 0) {
 		device_printf(dev, "Cannot enable HDMI DDC clock\n");
 		err = ENXIO;
@@ -174,6 +168,12 @@ a83t_hdmi_attach(device_t dev)
 	}
 	if (clk_enable(sc->clk_bus) != 0) {
 		device_printf(dev, "Cannot enable AHB clock\n");
+		err = ENXIO;
+		goto out;
+	}
+	if (hwreset_deassert(sc->rst_hdmi0) != 0 ||
+	    hwreset_deassert(sc->rst_hdmi1) != 0) {
+		device_printf(dev, "Cannot de-assert resets\n");
 		err = ENXIO;
 		goto out;
 	}

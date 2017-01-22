@@ -304,13 +304,18 @@
 		fb: fb@01000000 {
 			compatible = "allwinner,sun8i-a83t-fb";
 			reg = <0x01000000 0x400000>,	/* DE */
+			      <0x01c0c000 0x400>,	/* TCON0 */
 			      <0x01c0d000 0x400>;	/* TCON1 */
 			clocks = <&bus_gates 44>, <&pll_de>,
-				 <&bus_gates 37>, <&tcon1_clk>;
+				 <&bus_gates 36>, <&bus_gates 37>,
+				 <&tcon0_clk>, <&tcon1_clk>;
 			clock-names = "gate_de", "clock_de",
-				      "gate_tcon0", "clock_tcon0";
-			resets = <&ahb_reset 44>, <&ahb_reset 37>;
-			reset-names = "de", "tcon0";
+				      "gate_tcon0", "gate_tcon1",
+				      "clock_tcon0", "clock_tcon1";
+			resets = <&ahb_reset 44>,
+				 <&ahb_reset 36>, <&ahb_reset 37>;
+			reset-names = "de",
+				      "tcon0", "tcon1";
 		};
 
 		hdmi: hdmi@01ee0000 {

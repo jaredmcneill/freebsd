@@ -177,6 +177,14 @@ dwc_hdmi_av_composer(struct dwc_hdmi_softc *sc)
 
 	/* Set up VSYNC active edge delay (in pixel clks) */
 	WR1(sc, HDMI_FC_VSYNCINWIDTH, (sc->sc_mode.vsync_end - sc->sc_mode.vsync_start));
+
+#if 0
+	/* Enable video fixed data */
+	WR1(sc, HDMI_FC_DBGTMDS0, 0x00);	/* blue */
+	WR1(sc, HDMI_FC_DBGTMDS1, 0xff);	/* green */
+	WR1(sc, HDMI_FC_DBGTMDS2, 0x00);	/* red */
+	WR1(sc, HDMI_FC_DBGFORCE, 1);
+#endif
 }
 
 static void
@@ -420,6 +428,10 @@ dwc_hdmi_enable_video_path(struct dwc_hdmi_softc *sc)
 	WR1(sc, HDMI_FC_CH0PREAM, 0x0B);
 	WR1(sc, HDMI_FC_CH1PREAM, 0x16);
 	WR1(sc, HDMI_FC_CH2PREAM, 0x21);
+
+	/* Setup input pixel repetition */
+	WR1(sc, HDMI_FC_PRCONF, 0x10);	/* XXX no pixel repetition */
+	WR1(sc, HDMI_VP_PR_CD, 0x40);
 
 	/* Save CEC clock */
 	clkdis = RD1(sc, HDMI_MC_CLKDIS) & HDMI_MC_CLKDIS_CECCLK_DISABLE;
@@ -829,12 +841,14 @@ dwc_hdmi_detect_hdmi(struct dwc_hdmi_softc *sc)
 		if (hdmi_edid_read(sc, block, &edid, &edid_len) != 0)
 			return;
 		if (dwc_hdmi_detect_hdmi_vsdb(edid) != 0) {
+#if 0
 			if (bootverbose)
 				device_printf(sc->sc_dev,
 				    "enabling audio support\n");
 			sc->sc_has_audio =
 			    (edid[CEA_DTD] & DTD_BASIC_AUDIO) != 0;
 			return;
+#endif
 		}
 	}
 }

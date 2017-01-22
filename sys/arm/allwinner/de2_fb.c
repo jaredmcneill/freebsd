@@ -115,8 +115,13 @@ __FBSDID("$FreeBSD$");
 #define	BLD_CK_MIN(n)		(0xe0 + (n) * 0x4)
 #define	BLD_OUT_CTL		0xfc
 
+/* Mixers (VI/UI) */
+#define	DE_MIXER_BASE(_lcd, _ch)	(DE_MUX_BASE(_lcd) + 0x2000 + (_ch) * 0x1000)
+
+/* VI channel */
+#define	VI_SIZE			0x100
+
 /* UI channel */
-#define	DE_UI_BASE(_lcd, _ch)	(DE_MUX_BASE(_lcd) + 0x2000 + (_ch) * 0x1000)
 #define	UI_ATTR_CFG(n)		(0x00 + (n) * 0x20)
 #define	 UI_ATTR_FMT		(0x1f << 8)
 #define	 UI_ATTR_FMT_SHIFT	8
@@ -131,6 +136,7 @@ __FBSDID("$FreeBSD$");
 #define	UI_TOP_HADDR		0x80
 #define	UI_BOT_HADDR		0x84
 #define	UI_OVL_SIZE		0x88
+#define	UI_SIZE			0x8c
 
 /* Timing controller */
 #define	TCON_GCTL		0x000
@@ -138,11 +144,15 @@ __FBSDID("$FreeBSD$");
 #define	TCON_GINT0		0x004
 #define	TCON_GINT1		0x008
 #define	TCON0_CTL		0x040
+#define	 TCON0_CTL_EN		(1 << 31)
 #define	TCON1_CTL		0x090
 #define	 TCON1_CTL_EN		(1 << 31)
 #define	 TCON1_CTL_INTERLACE	(1 << 20)
 #define	 TCON1_CTL_START_DELAY	(0x1f << 4)
 #define	 TCON1_CTL_START_DELAY_SHIFT	4
+#define	 TCON1_CTL_SRC_SEL	(0x3 << 0)
+#define	 TCON1_CTL_SRC_SEL_DE0	1
+#define	 TCON1_CTL_SRC_SEL_BLUE	2
 #define	TCON1_BASIC0		0x094
 #define	TCON1_BASIC1		0x098
 #define	TCON1_BASIC2		0x09c
@@ -170,12 +180,15 @@ __FBSDID("$FreeBSD$");
 struct de2fb_softc {
 	device_t		dev;
 	device_t		fbdev;
-	struct resource		*res[2];
+	struct resource		*res[3];
 
 	clk_t			gate_de, clock_de;
-	clk_t			gate_tcon0, clock_tcon0;
+	clk_t			gate_tcon[2], clock_tcon[2];
 	hwreset_t		rst_de;
-	hwreset_t		rst_tcon0;
+	hwreset_t		rst_tcon[2];
+
+	int			lcdno;
+	int			mixerno;
 
 	/* Framebuffer */
 	struct fb_info		info;
@@ -189,21 +202,28 @@ struct de2fb_softc {
 
 static struct resource_spec de2fb_spec[] = {
 	{ SYS_RES_MEMORY,	0,	RF_ACTIVE },	/* DE */
-	{ SYS_RES_MEMORY,	1,	RF_ACTIVE },	/* TCON */
+	{ SYS_RES_MEMORY,	1,	RF_ACTIVE },	/* TCON0 */
+	{ SYS_RES_MEMORY,	2,	RF_ACTIVE },	/* TCON1 */
 	{ -1, 0 }
 };
 
 #define	DE_READ(sc, reg)		bus_read_4((sc)->res[0], (reg))
 #define	DE_WRITE(sc, reg, val)		bus_write_4((sc)->res[0], (reg), (val))
-#define	TCON_READ(sc, reg)		bus_read_4((sc)->res[1], (reg))
-#define	TCON_WRITE(sc, reg, val)	bus_write_4((sc)->res[1], (reg), (val))
+#define	TCON_READ(sc, reg)		bus_read_4((sc)->res[1 + (sc)->lcdno], (reg))
+#define	TCON_WRITE(sc, reg, val)	bus_write_4((sc)->res[1 + (sc)->lcdno], (reg), (val))
+#define	TCON0_READ(sc, reg)		bus_read_4((sc)->res[1], (reg))
+#define	TCON0_WRITE(sc, reg, val)	bus_write_4((sc)->res[1], (reg), (val))
+#define	TCON1_READ(sc, reg)		bus_read_4((sc)->res[2], (reg))
+#define	TCON1_WRITE(sc, reg, val)	bus_write_4((sc)->res[2], (reg), (val))
 
-#define	GLB_READ(sc, reg)		DE_READ(sc, DE_GLB_BASE(0) + (reg))
-#define	GLB_WRITE(sc, reg, val)		DE_WRITE(sc, DE_GLB_BASE(0) + (reg), val)
-#define	BLD_READ(sc, reg)		DE_READ(sc, DE_BLD_BASE(0) + (reg))
-#define	BLD_WRITE(sc, reg, val)		DE_WRITE(sc, DE_BLD_BASE(0) + (reg), val)
-#define	UI_READ(sc, reg)		DE_READ(sc, DE_UI_BASE(0, 0) + (reg))
-#define	UI_WRITE(sc, reg, val)		DE_WRITE(sc, DE_UI_BASE(0, 0) + (reg), val)
+#define	GLB_READ(sc, reg)		DE_READ(sc, DE_GLB_BASE((sc)->mixerno) + (reg))
+#define	GLB_WRITE(sc, reg, val)		DE_WRITE(sc, DE_GLB_BASE((sc)->mixerno) + (reg), val)
+#define	BLD_READ(sc, reg)		DE_READ(sc, DE_BLD_BASE((sc)->mixerno) + (reg))
+#define	BLD_WRITE(sc, reg, val)		DE_WRITE(sc, DE_BLD_BASE((sc)->mixerno) + (reg), val)
+#define	VI_READ(sc, reg)		DE_READ(sc, DE_MIXER_BASE((sc)->mixerno, 0) + (reg))
+#define	VI_WRITE(sc, reg, val)		DE_WRITE(sc, DE_MIXER_BASE((sc)->mixerno, 0) + (reg), val)
+#define	UI_READ(sc, reg)		DE_READ(sc, DE_MIXER_BASE((sc)->mixerno, 1) + (reg))
+#define	UI_WRITE(sc, reg, val)		DE_WRITE(sc, DE_MIXER_BASE((sc)->mixerno, 1) + (reg), val)
 
 static int
 de2fb_allocfb(struct de2fb_softc *sc)
@@ -241,6 +261,13 @@ de2fb_enable_de_clocks(struct de2fb_softc *sc)
 		return (ENXIO);
 	}
 
+	/* Leave reset */
+	error = hwreset_deassert(sc->rst_de);
+	if (error != 0) {
+		device_printf(sc->dev, "couldn't de-assert reset 'de'\n");
+		return (error);
+	}
+
 	/* Gating clock */
 	error = clk_enable(sc->gate_de);
 	if (error != 0) {
@@ -255,13 +282,6 @@ de2fb_enable_de_clocks(struct de2fb_softc *sc)
 		return (error);
 	}
 
-	/* Leave reset */
-	error = hwreset_deassert(sc->rst_de);
-	if (error != 0) {
-		device_printf(sc->dev, "couldn't de-assert reset 'de'\n");
-		return (error);
-	}
-
 	return (0);
 }
 
@@ -270,42 +290,86 @@ de2fb_enable_tcon_clocks(struct de2fb_softc *sc)
 {
 	int error;
 
-	if (hwreset_get_by_ofw_name(sc->dev, 0, "tcon0", &sc->rst_tcon0) != 0) {
+	if (hwreset_get_by_ofw_name(sc->dev, 0, "tcon0", &sc->rst_tcon[0]) != 0 ||
+	    hwreset_get_by_ofw_name(sc->dev, 0, "tcon1", &sc->rst_tcon[1]) != 0) {
 		device_printf(sc->dev, "cannot get hwreset resources\n");
 		return (ENXIO);
 	}
 
-	if (clk_get_by_ofw_name(sc->dev, 0, "gate_tcon0", &sc->gate_tcon0) != 0) {
-		device_printf(sc->dev, "cannot get gate_tcon0\n");
+	if (clk_get_by_ofw_name(sc->dev, 0, "gate_tcon0", &sc->gate_tcon[0]) != 0 ||
+	    clk_get_by_ofw_name(sc->dev, 0, "gate_tcon1", &sc->gate_tcon[1]) != 0) {
+		device_printf(sc->dev, "cannot get gate clocks\n");
 		return (ENXIO);
 	}
-	if (clk_get_by_ofw_name(sc->dev, 0, "clock_tcon0", &sc->clock_tcon0) != 0) {
-		device_printf(sc->dev, "cannot get clock_tcon0\n");
+	if (clk_get_by_ofw_name(sc->dev, 0, "clock_tcon0", &sc->clock_tcon[0]) != 0 ||
+	    clk_get_by_ofw_name(sc->dev, 0, "clock_tcon1", &sc->clock_tcon[1]) != 0) {
+		device_printf(sc->dev, "cannot get pixel clocks\n");
 		return (ENXIO);
-	}
-
-	/* Gating clock */
-	error = clk_enable(sc->gate_tcon0);
-	if (error != 0) {
-		device_printf(sc->dev, "cannot enable clock 'gate_tcon0'\n");
-		return (error);
-	}
-
-	/* Core clock */
-	error = clk_enable(sc->clock_tcon0);
-	if (error != 0) {
-		device_printf(sc->dev, "cannot enable clock 'clock_tcon0'\n");
-		return (error);
 	}
 
 	/* Leave reset */
-	error = hwreset_deassert(sc->rst_tcon0);
+	error = hwreset_deassert(sc->rst_tcon[0]);
 	if (error != 0) {
-		device_printf(sc->dev, "couldn't de-assert reset 'tcon0'\n");
+		device_printf(sc->dev, "couldn't de-assert reset 0\n");
+		return (error);
+	}
+	error = hwreset_deassert(sc->rst_tcon[1]);
+	if (error != 0) {
+		device_printf(sc->dev, "couldn't de-assert reset 1\n");
+		return (error);
+	}
+
+	/* Gating clocks */
+	error = clk_enable(sc->gate_tcon[0]);
+	if (error != 0) {
+		device_printf(sc->dev, "cannot enable gate clock 0\n");
+		return (error);
+	}
+	error = clk_enable(sc->gate_tcon[1]);
+	if (error != 0) {
+		device_printf(sc->dev, "cannot enable gate clock 1\n");
+		return (error);
+	}
+
+	/* Pixel clocks */
+	error = clk_enable(sc->clock_tcon[0]);
+	if (error != 0) {
+		device_printf(sc->dev, "cannot enable pixel clock 0\n");
+		return (error);
+	}
+	error = clk_enable(sc->clock_tcon[1]);
+	if (error != 0) {
+		device_printf(sc->dev, "cannot enable pixel clock 1\n");
 		return (error);
 	}
 
 	return (0);
+}
+
+static void
+de2fb_reset_de(struct de2fb_softc *sc)
+{
+	u_int off;
+
+	/* Clear the VI/UI channels */
+	for (off = 0x00; off < VI_SIZE; off += 4)
+		VI_WRITE(sc, off, 0);
+	for (off = 0x00; off < UI_SIZE; off += 4) {
+		DE_WRITE(sc, DE_MIXER_BASE(sc->mixerno, 1) + off, 0);
+		if (sc->mixerno == 0) {
+			DE_WRITE(sc, DE_MIXER_BASE(sc->mixerno, 2) + off, 0);
+			DE_WRITE(sc, DE_MIXER_BASE(sc->mixerno, 3) + off, 0);
+		}
+	}
+		
+	/* Setup alpha blending */
+	BLD_WRITE(sc, BLD_FCOLOR_CTL, 0x00000101);
+	BLD_WRITE(sc, BLD_ROUTE, 0x0021);
+	BLD_WRITE(sc, BLD_PREMULT, 0);
+	BLD_WRITE(sc, BLD_BKCOLOR, 0xff000000);
+	BLD_WRITE(sc, BLD_MODE(0), 0x03010301);
+	BLD_WRITE(sc, BLD_MODE(1), 0x03010301);
+	BLD_WRITE(sc, BLD_MODE(2), 0x03010301);
 }
 
 static int
@@ -318,31 +382,39 @@ de2fb_setup_de(struct de2fb_softc *sc, const struct videomode *mode)
 	size = DE_WH(mode->hdisplay, mode->vdisplay);
 	interlace = !!(mode->flags & VID_INTERLACE);
 
-	enable = 1;	/* Bit 0 = Enable LCD0 */
+/* XXX A83T */
+	DE_WRITE(sc, DE_DIV_REG, 0x11);
+
+	enable = sc->mixerno == 0 ? 1 : 4;
 	DE_WRITE(sc, DE_RESET_REG, DE_READ(sc, DE_RESET_REG) | enable);
+	enable = 1 << sc->mixerno;
 	DE_WRITE(sc, DE_GATE_REG, DE_READ(sc, DE_GATE_REG) | enable);
 	DE_WRITE(sc, DE_MOD_REG, DE_READ(sc, DE_MOD_REG) | enable);
 
-	/* Select LCD0 */
+	/* Select LCD output */
 	val = DE_READ(sc, DE_SEL_REG);
 	val &= ~DE_SEL_LCD_MASK;
-	val |= DE_SEL_LCD_0;
+	switch (sc->mixerno) {
+	case 0:
+		val |= DE_SEL_LCD_0;
+		break;
+	case 1:
+		val |= DE_SEL_LCD_1;
+		break;
+	default:
+		return (EINVAL);
+	}
 	DE_WRITE(sc, DE_SEL_REG, val);
+	GLB_WRITE(sc, GLB_DBUFF, 1);
 
 	/* Global init */
-	GLB_WRITE(sc, GLB_CTL, GLB_CTL_RT_EN | GLB_CTL_RTWB_PORT);
+	GLB_WRITE(sc, GLB_CTL, GLB_CTL_RT_EN);
 	GLB_WRITE(sc, GLB_STATUS, 0);
-	GLB_WRITE(sc, GLB_DBUFF, 1);
 	GLB_WRITE(sc, GLB_SIZE, size);
 
-	/* Setup alpha blending */
-	BLD_WRITE(sc, BLD_FCOLOR_CTL, 0x00000101);
-	BLD_WRITE(sc, BLD_ROUTE, 0x0021);
-	BLD_WRITE(sc, BLD_PREMULT, 0);
-	BLD_WRITE(sc, BLD_BKCOLOR, 0xff000000);
-	BLD_WRITE(sc, BLD_MODE(0), 0x03010301);
-	BLD_WRITE(sc, BLD_MODE(1), 0x03010301);
-	BLD_WRITE(sc, BLD_MODE(2), 0x03010301);
+	/* Initialize registers */
+	de2fb_reset_de(sc);
+
 	BLD_WRITE(sc, BLD_INSIZE_ATTR(0), size);
 	BLD_WRITE(sc, BLD_INSIZE_ATTR(1), size);
 	BLD_WRITE(sc, BLD_INSIZE_ATTR(2), size);
@@ -366,9 +438,9 @@ de2fb_setup_pll(struct de2fb_softc *sc, uint64_t freq)
 {
 	int error;
 
-	error = clk_set_freq(sc->clock_tcon0, freq, 0);
+	error = clk_set_freq(sc->clock_tcon[sc->lcdno], freq, 0);
 	if (error != 0) {
-		device_printf(sc->dev, "cannot set %s frequency\n", clk_get_name(sc->clock_tcon0));
+		device_printf(sc->dev, "cannot set %s frequency\n", clk_get_name(sc->clock_tcon[sc->lcdno]));
 		return (error);
 	}
 
@@ -382,7 +454,7 @@ de2fb_setup_tcon(struct de2fb_softc *sc, const struct videomode *mode)
 	uint32_t val;
 
 	interlace = (mode->flags & VID_INTERLACE) ? 2 : 1;
-	start_delay = MAX(31, (mode->vtotal - mode->vdisplay) / interlace - 5);
+	start_delay = MIN(31, (mode->vtotal - mode->vdisplay) / interlace - 5);
 
 	val = TCON_XY(mode->hdisplay - 1, mode->vdisplay / interlace - 1);
 	TCON_WRITE(sc, TCON1_BASIC0, val);
@@ -424,12 +496,19 @@ de2fb_setup_tcon(struct de2fb_softc *sc, const struct videomode *mode)
 	val = TCON_READ(sc, TCON1_CTL);
 	val &= ~TCON1_CTL_START_DELAY;
 	val |= (start_delay << TCON1_CTL_START_DELAY_SHIFT);
+	val &= ~TCON1_CTL_SRC_SEL;
+	val |= TCON1_CTL_SRC_SEL_DE0;
+	val |= TCON1_CTL_EN;
 	TCON_WRITE(sc, TCON1_CTL, val);
 
-	TCON_WRITE(sc, TCON1_IO_TRI, 0x0fffffff);
+#if 0
+	val = TCON_READ(sc, TCON1_CTL);
+	val &= ~TCON1_CTL_SRC_SEL;
+	val |= TCON1_CTL_SRC_SEL_BLUE;
+	TCON_WRITE(sc, TCON1_CTL, val);
+#endif
 
-	/* Setup PLL */
-	return (de2fb_setup_pll(sc, DOT_CLOCK_TO_HZ(mode->dot_clock)));
+	return (0);
 }
 
 static void
@@ -437,18 +516,16 @@ de2fb_enable_tcon(struct de2fb_softc *sc, int onoff)
 {
 	uint32_t val;
 
-	/* Enable LCD0 to HDMI */
-	val = TCON_READ(sc, TCON_MUX_CTL);
-	val &= ~TCON_MUX_CTL_HDMI_SRC;
-	TCON_WRITE(sc, TCON_MUX_CTL, val);
-
 	/* Enable TCON */
-	val = TCON_READ(sc, TCON1_CTL);
+	val = TCON_READ(sc, TCON_GCTL);
 	if (onoff)
-		val |= TCON1_CTL_EN;
+		val |= TCON_GCTL_EN;
 	else
-		val &= ~TCON1_CTL_EN;
-	TCON_WRITE(sc, TCON1_CTL, val);
+		val &= ~TCON_GCTL_EN;
+	TCON_WRITE(sc, TCON_GCTL, val);
+
+	/* Enable TCON1 IO outputs */
+	TCON_WRITE(sc, TCON1_IO_TRI, 0x0fffffff);
 }
 
 static int
@@ -481,8 +558,11 @@ de2fb_configure(struct de2fb_softc *sc, const struct videomode *mode)
 		}
 	}
 
-	/* Setup display engine */
-	error = de2fb_setup_de(sc, mode);
+	/* Disable timing controller */
+	de2fb_enable_tcon(sc, 0);
+
+	/* Set pixel clock rate */
+	error = de2fb_setup_pll(sc, DOT_CLOCK_TO_HZ(mode->dot_clock));
 	if (error != 0)
 		return (error);
 
@@ -493,6 +573,11 @@ de2fb_configure(struct de2fb_softc *sc, const struct videomode *mode)
 
 	/* Enable timing controller */
 	de2fb_enable_tcon(sc, 1);
+
+	/* Setup display engine */
+	error = de2fb_setup_de(sc, mode);
+	if (error != 0)
+		return (error);
 
 	/* Attach framebuffer device */
 	sc->info.fb_name = device_get_nameunit(sc->dev);
@@ -664,6 +749,8 @@ de2fb_attach(device_t dev)
 	sc = device_get_softc(dev);
 
 	sc->dev = dev;
+	sc->lcdno = 1;
+	sc->mixerno = 0;
 
 	if (bus_alloc_resources(dev, de2fb_spec, sc->res)) {
 		device_printf(dev, "cannot allocate resources for device\n");
@@ -679,6 +766,12 @@ de2fb_attach(device_t dev)
 		device_printf(dev, "cannot enable TCON clocks\n");
 		return (ENXIO);
 	}
+
+	/* Disable TCON */
+	TCON_WRITE(sc, TCON0_CTL, TCON_READ(sc, TCON0_CTL) & ~TCON0_CTL_EN);
+	TCON_WRITE(sc, TCON1_CTL, TCON_READ(sc, TCON1_CTL) & ~TCON1_CTL_EN);
+	TCON_WRITE(sc, TCON_GCTL, TCON_READ(sc, TCON_GCTL) & ~TCON_GCTL_EN);
+	TCON_WRITE(sc, TCON_GINT0, 0);
 
 	sc->hdmi_evh = EVENTHANDLER_REGISTER(hdmi_event,
 	    de2fb_hdmi_event, sc, 0);

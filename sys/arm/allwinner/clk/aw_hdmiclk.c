@@ -101,15 +101,25 @@ aw_hdmiclk_init(struct clknode *clk, device_t dev)
 
 	sc = clknode_get_softc(clk);
 
-	/* Select PLL3(1X) clock source */
-	index = A10_CLK_IDX_PLL3_1X;
+	switch (sc->type) {
+	case AW_HDMICLK_A10:
+		/* Select PLL3(1X) clock source */
+		index = A10_CLK_IDX_PLL3_1X;
 
-	DEVICE_LOCK(sc);
-	HDMICLK_READ(sc, &val);
-	val &= ~A10_CLK_SRC_SEL;
-	val |= (index << A10_CLK_SRC_SEL_SHIFT);
-	HDMICLK_WRITE(sc, val);
-	DEVICE_UNLOCK(sc);
+		DEVICE_LOCK(sc);
+		HDMICLK_READ(sc, &val);
+		val &= ~A10_CLK_SRC_SEL;
+		val |= (index << A10_CLK_SRC_SEL_SHIFT);
+		HDMICLK_WRITE(sc, val);
+		DEVICE_UNLOCK(sc);
+		break;
+	case AW_HDMICLK_A83T:
+		/* Only one parent (PLL_VIDEO1) */
+		index = 0;
+		break;
+	default:
+		return (EINVAL);
+	}
 
 	clknode_init_parent_idx(clk, index);
 	return (0);
@@ -123,15 +133,32 @@ aw_hdmiclk_set_mux(struct clknode *clk, int index)
 
 	sc = clknode_get_softc(clk);
 
-	if (index < 0 || index > A10_CLK_SRC_SEL_MAX)
-		return (ERANGE);
+	switch (sc->type) {
+	case AW_HDMICLK_A10:
+		if (index < 0 || index > A10_CLK_SRC_SEL_MAX)
+			return (ERANGE);
 
-	DEVICE_LOCK(sc);
-	HDMICLK_READ(sc, &val);
-	val &= ~A10_CLK_SRC_SEL;
-	val |= (index << A10_CLK_SRC_SEL_SHIFT);
-	HDMICLK_WRITE(sc, val);
-	DEVICE_UNLOCK(sc);
+		DEVICE_LOCK(sc);
+		HDMICLK_READ(sc, &val);
+		val &= ~A10_CLK_SRC_SEL;
+		val |= (index << A10_CLK_SRC_SEL_SHIFT);
+		HDMICLK_WRITE(sc, val);
+		DEVICE_UNLOCK(sc);
+		break;
+	case AW_HDMICLK_A83T:
+		if (index != 0)
+			return (ERANGE);
+
+		DEVICE_LOCK(sc);
+		HDMICLK_READ(sc, &val);
+		val &= ~A83T_CLK_SRC_SEL;
+		val |= (index << A83T_CLK_SRC_SEL_SHIFT);
+		HDMICLK_WRITE(sc, val);
+		DEVICE_UNLOCK(sc);
+		break;
+	default:
+		return (EINVAL);
+	}
 
 	return (0);
 }
