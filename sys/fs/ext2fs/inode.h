@@ -15,7 +15,7 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 4. Neither the name of the University nor the names of its contributors
+ * 3. Neither the name of the University nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
  *
@@ -56,10 +56,10 @@
 /*
  * The size of physical and logical block numbers in EXT2FS.
  */
-typedef	uint32_t e2fs_daddr_t;
-typedef	int64_t	e2fs_lbn_t;
-typedef	int64_t e4fs_daddr_t;
- 
+typedef uint32_t e2fs_daddr_t;
+typedef int64_t e2fs_lbn_t;
+typedef int64_t e4fs_daddr_t;
+
 /*
  * The inode is used to describe each active (or recently active) file in the
  * EXT2FS filesystem. It is composed of two types of information. The first
@@ -178,11 +178,11 @@ struct indir {
 
 /* This overlays the fid structure (see mount.h). */
 struct ufid {
-	uint16_t ufid_len;	/* Length of structure. */
-	uint16_t ufid_pad;	/* Force 32-bit alignment. */
-	ino_t	 ufid_ino;	/* File number (ino). */
-	uint32_t ufid_gen;	/* Generation number. */
+	uint16_t ufid_len;		/* Length of structure. */
+	uint16_t ufid_pad;		/* Force 32-bit alignment. */
+	ino_t	ufid_ino;		/* File number (ino). */
+	uint32_t ufid_gen;		/* Generation number. */
 };
-#endif /* _KERNEL */
+#endif	/* _KERNEL */
 
-#endif /* !_FS_EXT2FS_INODE_H_ */
+#endif	/* !_FS_EXT2FS_INODE_H_ */

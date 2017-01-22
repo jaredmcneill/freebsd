@@ -401,6 +401,7 @@ auth_portal_new(struct auth_group *ag, const char *portal)
 	return (ap);
 
 error:
+	free(str);
 	free(ap);
 	log_warnx("incorrect initiator portal \"%s\"", portal);
 	return (NULL);
@@ -675,8 +676,10 @@ parse_addr_port(char *arg, const char *def_port, struct addrinfo **ai)
 		 */
 		arg++;
 		addr = strsep(&arg, "]");
-		if (arg == NULL)
+		if (arg == NULL) {
+			free(str);
 			return (1);
+		}
 		if (arg[0] == '\0') {
 			port = def_port;
 		} else if (arg[0] == ':') {
@@ -1579,6 +1582,7 @@ connection_new(struct portal *portal, int fd, const char *host,
 	 * Default values, from RFC 3720, section 12.
 	 */
 	conn->conn_max_recv_data_segment_length = 8192;
+	conn->conn_max_send_data_segment_length = 8192;
 	conn->conn_max_burst_length = 262144;
 	conn->conn_first_burst_length = 65536;
 	conn->conn_immediate_data = true;

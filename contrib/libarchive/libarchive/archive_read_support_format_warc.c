@@ -88,7 +88,7 @@ typedef enum {
 	WT_RVIS,
 	/* conversion, unsupported */
 	WT_CONV,
-	/* continutation, unsupported at the moment */
+	/* continuation, unsupported at the moment */
 	WT_CONT,
 	/* invalid type */
 	LAST_WT
@@ -146,12 +146,11 @@ archive_read_support_format_warc(struct archive *_a)
 	archive_check_magic(_a, ARCHIVE_READ_MAGIC,
 	    ARCHIVE_STATE_NEW, "archive_read_support_format_warc");
 
-	if ((w = malloc(sizeof(*w))) == NULL) {
+	if ((w = calloc(1, sizeof(*w))) == NULL) {
 		archive_set_error(&a->archive, ENOMEM,
 		    "Can't allocate warc data");
 		return (ARCHIVE_FATAL);
 	}
-	memset(w, 0, sizeof(*w));
 
 	r = __archive_read_register_format(
 		a, w, "warc",
@@ -563,7 +562,7 @@ xstrpisotime(const char *s, char **endptr)
 		goto out;
 	}
 
-	/* massage TM to fulfill some of POSIX' contraints */
+	/* massage TM to fulfill some of POSIX' constraints */
 	tm.tm_year -= 1900;
 	tm.tm_mon--;
 

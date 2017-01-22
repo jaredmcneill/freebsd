@@ -42,6 +42,7 @@ SUBDIR=	\
 	${_apm} \
 	${_arcmsr} \
 	${_arcnet} \
+	${_armv8crypto} \
 	${_asmc} \
 	ata \
 	ath \
@@ -62,6 +63,7 @@ SUBDIR=	\
 	bwi \
 	bwn \
 	bwn_pci \
+	${_bytgpio} \
 	cam \
 	${_canbepm} \
 	${_canbus} \
@@ -161,9 +163,9 @@ SUBDIR=	\
 	if_tun \
 	if_vlan \
 	if_vxlan \
-	${_igb} \
 	${_iir} \
 	imgact_binmisc \
+	${_intelspi} \
 	${_io} \
 	${_ioat} \
         ${_ipoib} \
@@ -330,6 +332,7 @@ SUBDIR=	\
 	scc \
 	${_scsi_low} \
 	sdhci \
+	${_sdhci_acpi} \
 	sdhci_pci \
 	sem \
 	send \
@@ -539,14 +542,15 @@ _cxgb=		cxgb
 .endif
 
 .if ${MACHINE_CPUARCH} == "aarch64"
+_armv8crypto=	armv8crypto
 _em=		em
-_igb=		igb
 .endif
 
 .if ${MACHINE_CPUARCH} == "i386" || ${MACHINE_CPUARCH} == "amd64"
 _agp=		agp
 _an=		an
 _aout=		aout
+_bios=		bios
 _bktr=		bktr
 _bxe=		bxe
 _cardbus=	cardbus
@@ -567,7 +571,6 @@ _fe=		fe
 _ibcore=        ibcore
 .endif
 _if_ndis=	if_ndis
-_igb=		igb
 _io=		io
 .if ${MK_OFED} != "no" || defined(ALL_MODULES)
 _ipoib=         ipoib
@@ -605,6 +608,7 @@ _amdsbwd=	amdsbwd
 _amdtemp=	amdtemp
 _arcmsr=	arcmsr
 _asmc=		asmc
+_bytgpio=	bytgpio
 _ciss=		ciss
 _chromebook_platform=	chromebook_platform
 _cmx=		cmx
@@ -622,6 +626,7 @@ _hyperv=	hyperv
 _ichwd=		ichwd
 _ida=		ida
 _iir=		iir
+_intelspi=	intelspi
 _ipmi=		ipmi
 _ips=		ips
 _isci=		isci
@@ -661,6 +666,7 @@ _padlock_rng=	padlock_rng
 _rdrand_rng=	rdrand_rng
 .endif
 _s3=		s3
+_sdhci_acpi=	sdhci_acpi
 _tpm=		tpm
 _twa=		twa
 _vesa=		vesa
@@ -726,7 +732,6 @@ _svr4=		svr4
 .if ${MK_EISA} != "no"
 _ahb=		ahb
 .endif
-_bios=		bios
 _cm=		cm
 .if ${MK_SOURCELESS_UCODE} != "no"
 _ctau=		ctau
@@ -773,7 +778,6 @@ _nvram=		powermac_nvram
 _auxio=		auxio
 _em=		em
 _epic=		epic
-_igb=		igb
 .endif
 
 .if (${MACHINE_CPUARCH} == "amd64" || ${MACHINE_ARCH} == "armv6" || \

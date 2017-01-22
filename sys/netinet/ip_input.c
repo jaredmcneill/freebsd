@@ -550,24 +550,35 @@ tooshort:
 			m_adj(m, ip_len - m->m_pkthdr.len);
 	}
 
-	/* Try to forward the packet, but if we fail continue */
+	/*
+	 * Try to forward the packet, but if we fail continue.
+	 * ip_tryforward() does inbound and outbound packet firewall
+	 * processing. If firewall has decided that destination becomes
+	 * our local address, it sets M_FASTFWD_OURS flag. In this
+	 * case skip another inbound firewall processing and update
+	 * ip pointer.
+	 */
+	if (V_ipforwarding != 0
 #ifdef IPSEC
-	/* For now we do not handle IPSEC in tryforward. */
-	if (!key_havesp(IPSEC_DIR_INBOUND) && !key_havesp(IPSEC_DIR_OUTBOUND) &&
-	    (V_ipforwarding == 1))
-		if (ip_tryforward(m) == NULL)
+	    && !key_havesp(IPSEC_DIR_INBOUND)
+	    && !key_havesp(IPSEC_DIR_OUTBOUND)
+#endif
+	   ) {
+		if ((m = ip_tryforward(m)) == NULL)
 			return;
+		if (m->m_flags & M_FASTFWD_OURS) {
+			m->m_flags &= ~M_FASTFWD_OURS;
+			ip = mtod(m, struct ip *);
+			goto ours;
+		}
+	}
+#ifdef IPSEC
 	/*
 	 * Bypass packet filtering for packets previously handled by IPsec.
 	 */
 	if (ip_ipsec_filtertunnel(m))
 		goto passin;
-#else
-	if (V_ipforwarding == 1)
-		if (ip_tryforward(m) == NULL)
-			return;
-#endif /* IPSEC */
-
+#endif
 	/*
 	 * Run through list of hooks for input packets.
 	 *
@@ -1146,30 +1157,48 @@ ip_forward(struct mbuf *m, int srcrt)
 	icmp_error(mcopy, type, code, dest.s_addr, mtu);
 }
 
+#define	CHECK_SO_CT(sp, ct) \
+    (((sp->so_options & SO_TIMESTAMP) && (sp->so_ts_clock == ct)) ? 1 : 0)
+
 void
 ip_savecontrol(struct inpcb *inp, struct mbuf **mp, struct ip *ip,
     struct mbuf *m)
 {
 
-	if (inp->inp_socket->so_options & (SO_BINTIME | SO_TIMESTAMP)) {
+	if ((inp->inp_socket->so_options & SO_BINTIME) ||
+	    CHECK_SO_CT(inp->inp_socket, SO_TS_BINTIME)) {
 		struct bintime bt;
 
 		bintime(&bt);
-		if (inp->inp_socket->so_options & SO_BINTIME) {
-			*mp = sbcreatecontrol((caddr_t)&bt, sizeof(bt),
-			    SCM_BINTIME, SOL_SOCKET);
-			if (*mp)
-				mp = &(*mp)->m_next;
-		}
-		if (inp->inp_socket->so_options & SO_TIMESTAMP) {
-			struct timeval tv;
+		*mp = sbcreatecontrol((caddr_t)&bt, sizeof(bt),
+		    SCM_BINTIME, SOL_SOCKET);
+		if (*mp)
+			mp = &(*mp)->m_next;
+	}
+	if (CHECK_SO_CT(inp->inp_socket, SO_TS_REALTIME_MICRO)) {
+		struct timeval tv;
 
-			bintime2timeval(&bt, &tv);
-			*mp = sbcreatecontrol((caddr_t)&tv, sizeof(tv),
-			    SCM_TIMESTAMP, SOL_SOCKET);
-			if (*mp)
-				mp = &(*mp)->m_next;
-		}
+		microtime(&tv);
+		*mp = sbcreatecontrol((caddr_t)&tv, sizeof(tv),
+		    SCM_TIMESTAMP, SOL_SOCKET);
+		if (*mp)
+			mp = &(*mp)->m_next;
+	} else if (CHECK_SO_CT(inp->inp_socket, SO_TS_REALTIME)) {
+		struct timespec ts;
+
+		nanotime(&ts);
+		*mp = sbcreatecontrol((caddr_t)&ts, sizeof(ts),
+		    SCM_REALTIME, SOL_SOCKET);
+		if (*mp)
+			mp = &(*mp)->m_next;
+	} else if (CHECK_SO_CT(inp->inp_socket, SO_TS_MONOTONIC)) {
+		struct timespec ts;
+
+		nanouptime(&ts);
+		*mp = sbcreatecontrol((caddr_t)&ts, sizeof(ts),
+		    SCM_MONOTONIC, SOL_SOCKET);
+		if (*mp)
+			mp = &(*mp)->m_next;
 	}
 	if (inp->inp_flags & INP_RECVDSTADDR) {
 		*mp = sbcreatecontrol((caddr_t)&ip->ip_dst,

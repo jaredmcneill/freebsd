@@ -50,10 +50,7 @@ __FBSDID("$FreeBSD$");
 
 #include "loader_efi.h"
 
-extern char bootprog_name[];
-extern char bootprog_rev[];
-extern char bootprog_date[];
-extern char bootprog_maker[];
+extern char bootprog_info[];
 
 #ifdef BOOT_FORTH
 /*
@@ -222,20 +219,19 @@ find_currdev(EFI_LOADED_IMAGE *img, struct devsw **dev, int *unit,
 		if (h == NULL)
 			break;
 
-		if (efi_handle_lookup(h, dev, unit, extra) == 0) {
-			if (copy != NULL)
-				free(copy);
-			return (0);
-		}
+		free(copy);
+		copy = NULL;
 
-		if (copy != NULL)
-			free(copy);
+		if (efi_handle_lookup(h, dev, unit, extra) == 0)
+			return (0);
+
 		devpath = efi_lookup_devpath(h);
 		if (devpath != NULL) {
 			copy = efi_devpath_trim(devpath);
 			devpath = copy;
 		}
 	}
+	free(copy);
 
 	/* Try to fallback on first device */
 	if (devsw[0] != NULL) {
@@ -409,9 +405,7 @@ main(int argc, CHAR16 *argv[])
 	printf("EFI Firmware: %S (rev %d.%02d)\n", ST->FirmwareVendor,
 	    ST->FirmwareRevision >> 16, ST->FirmwareRevision & 0xffff);
 
-	printf("\n");
-	printf("%s, Revision %s\n", bootprog_name, bootprog_rev);
-	printf("(%s, %s)\n", bootprog_maker, bootprog_date);
+	printf("\n%s", bootprog_info);
 
 	/*
 	 * Disable the watchdog timer. By default the boot manager sets

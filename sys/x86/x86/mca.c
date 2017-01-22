@@ -247,7 +247,7 @@ mca_error_mmtype(uint16_t mca_error)
 	return ("???");
 }
 
-static int __nonnull(1)
+static int
 mca_mute(const struct mca_record *rec)
 {
 
@@ -276,7 +276,7 @@ mca_mute(const struct mca_record *rec)
 }
 
 /* Dump details about a single machine check. */
-static void __nonnull(1)
+static void
 mca_log(const struct mca_record *rec)
 {
 	uint16_t mca_error;
@@ -415,7 +415,7 @@ mca_log(const struct mca_record *rec)
 		printf("MCA: Misc 0x%llx\n", (long long)rec->mr_misc);
 }
 
-static int __nonnull(2)
+static int
 mca_check_status(int bank, struct mca_record *rec)
 {
 	uint64_t status;
@@ -482,7 +482,7 @@ mca_refill(void *context, int pending)
 	mca_fill_freelist();
 }
 
-static void __nonnull(2)
+static void
 mca_record_entry(enum scan_mode mode, const struct mca_record *record)
 {
 	struct mca_internal *rec;
@@ -508,7 +508,7 @@ mca_record_entry(enum scan_mode mode, const struct mca_record *record)
 	STAILQ_INSERT_TAIL(&mca_records, rec, link);
 	mca_count++;
 	mtx_unlock_spin(&mca_lock);
-	if (mode == CMCI)
+	if (mode == CMCI && !cold)
 		taskqueue_enqueue(mca_tq, &mca_refill_task);
 }
 
@@ -714,6 +714,9 @@ mca_createtq(void *dummy)
 	mca_tq = taskqueue_create_fast("mca", M_WAITOK,
 	    taskqueue_thread_enqueue, &mca_tq);
 	taskqueue_start_threads(&mca_tq, 1, PI_SWI(SWI_TQ), "mca taskq");
+
+	/* CMCIs during boot may have claimed items from the freelist. */
+	mca_fill_freelist();
 }
 SYSINIT(mca_createtq, SI_SUB_CONFIGURE, SI_ORDER_ANY, mca_createtq, NULL);
 

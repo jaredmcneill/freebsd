@@ -2,6 +2,8 @@
 #
 # $FreeBSD$
 
+#NO_UNIVERSE
+
 ident		X1000
 machine		mips mipsel
 cpu		CPU_XBURST
@@ -26,6 +28,7 @@ options 	KDB
 options 	BREAK_TO_DEBUGGER
 
 options 	COMPAT_FREEBSD10
+options 	COMPAT_FREEBSD11
 
 options 	SCHED_4BSD		#4BSD scheduler
 options 	INET			#InterNETworking
@@ -87,3 +90,6 @@ device		mmcsd
 #device		ulpt		# Printer
 #device		umass		# Disks/Mass storage - Requires scbus and da
 #device		ums		# Mouse
+
+# FDT support
+options 	FDT

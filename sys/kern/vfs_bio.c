@@ -288,15 +288,6 @@ static int bufspace_request;
 static int bd_speedupreq;
 
 /*
- * bogus page -- for I/O to/from partially complete buffers
- * this is a temporary solution to the problem, but it is not
- * really that bad.  it would be better to split the buffer
- * for input in the case of buffers partially already in memory,
- * but the code is intricate enough already.
- */
-vm_page_t bogus_page;
-
-/*
  * Synchronization (sleep/wakeup) variable for active buffer space requests.
  * Set when wait starts, cleared prior to wakeup().
  * Used in runningbufwakeup() and waitrunningbufspace().
@@ -1114,9 +1105,6 @@ bufinit(void)
 	lofreebuffers = MIN((nbuf / 25) + (20 * mp_ncpus), 128 * mp_ncpus);
 	hifreebuffers = (3 * lofreebuffers) / 2;
 	numfreebuffers = nbuf;
-
-	bogus_page = vm_page_alloc(NULL, 0, VM_ALLOC_NOOBJ |
-	    VM_ALLOC_NORMAL | VM_ALLOC_WIRED);
 
 	/* Setup the kva and free list allocators. */
 	vmem_set_reclaim(buffer_arena, bufkva_reclaim);
@@ -3917,10 +3905,8 @@ biodone(struct bio *bp)
 		bp->bio_flags |= BIO_DONE;
 		wakeup(bp);
 		mtx_unlock(mtxp);
-	} else {
-		bp->bio_flags |= BIO_DONE;
+	} else
 		done(bp);
-	}
 }
 
 /*
@@ -4414,6 +4400,45 @@ vfs_bio_bzero_buf(struct buf *bp, int base, int size)
 }
 
 /*
+ * Update buffer flags based on I/O request parameters, optionally releasing the
+ * buffer.  If it's VMIO or direct I/O, the buffer pages are released to the VM,
+ * where they may be placed on a page queue (VMIO) or freed immediately (direct
+ * I/O).  Otherwise the buffer is released to the cache.
+ */
+static void
+b_io_dismiss(struct buf *bp, int ioflag, bool release)
+{
+
+	KASSERT((ioflag & IO_NOREUSE) == 0 || (ioflag & IO_VMIO) != 0,
+	    ("buf %p non-VMIO noreuse", bp));
+
+	if ((ioflag & IO_DIRECT) != 0)
+		bp->b_flags |= B_DIRECT;
+	if ((ioflag & (IO_VMIO | IO_DIRECT)) != 0 && LIST_EMPTY(&bp->b_dep)) {
+		bp->b_flags |= B_RELBUF;
+		if ((ioflag & IO_NOREUSE) != 0)
+			bp->b_flags |= B_NOREUSE;
+		if (release)
+			brelse(bp);
+	} else if (release)
+		bqrelse(bp);
+}
+
+void
+vfs_bio_brelse(struct buf *bp, int ioflag)
+{
+
+	b_io_dismiss(bp, ioflag, true);
+}
+
+void
+vfs_bio_set_flags(struct buf *bp, int ioflag)
+{
+
+	b_io_dismiss(bp, ioflag, false);
+}
+
+/*
  * vm_hold_load_pages and vm_hold_free_pages get pages into
  * a buffers address space.  The pages are anonymous and are
  * not associated with a file object.
@@ -4707,7 +4732,7 @@ vfs_bio_getpages(struct vnode *vp, vm_page_t *ma, int count,
 	daddr_t lbn, lbnp;
 	vm_ooffset_t la, lb, poff, poffe;
 	long bsize;
-	int bo_bs, br_flags, error, i;
+	int bo_bs, br_flags, error, i, pgsin, pgsin_a, pgsin_b;
 	bool redo, lpart;
 
 	object = vp->v_object;
@@ -4717,17 +4742,26 @@ vfs_bio_getpages(struct vnode *vp, vm_page_t *ma, int count,
 		return (VM_PAGER_BAD);
 	lpart = la + PAGE_SIZE > object->un_pager.vnp.vnp_size;
 	bo_bs = get_blksize(vp, get_lblkno(vp, IDX_TO_OFF(ma[0]->pindex)));
-	if (rbehind != NULL) {
-		lb = IDX_TO_OFF(ma[0]->pindex);
-		*rbehind = OFF_TO_IDX(lb - rounddown2(lb, bo_bs));
-	}
-	if (rahead != NULL) {
-		*rahead = OFF_TO_IDX(roundup2(la, bo_bs) - la);
-		if (la + IDX_TO_OFF(*rahead) >= object->un_pager.vnp.vnp_size) {
-			*rahead = OFF_TO_IDX(roundup2(object->un_pager.
-			    vnp.vnp_size, PAGE_SIZE) - la);
-		}
-	}
+
+	/*
+	 * Calculate read-ahead, behind and total pages.
+	 */
+	pgsin = count;
+	lb = IDX_TO_OFF(ma[0]->pindex);
+	pgsin_b = OFF_TO_IDX(lb - rounddown2(lb, bo_bs));
+	pgsin += pgsin_b;
+	if (rbehind != NULL)
+		*rbehind = pgsin_b;
+	pgsin_a = OFF_TO_IDX(roundup2(la, bo_bs) - la);
+	if (la + IDX_TO_OFF(pgsin_a) >= object->un_pager.vnp.vnp_size)
+		pgsin_a = OFF_TO_IDX(roundup2(object->un_pager.vnp.vnp_size,
+		    PAGE_SIZE) - la);
+	pgsin += pgsin_a;
+	if (rahead != NULL)
+		*rahead = pgsin_a;
+	PCPU_INC(cnt.v_vnodein);
+	PCPU_ADD(cnt.v_vnodepgsin, pgsin);
+
 	br_flags = (mp != NULL && (mp->mnt_kern_flag & MNTK_UNMAPPED_BUFS)
 	    != 0) ? GB_UNMAPPED : 0;
 	VM_OBJECT_WLOCK(object);

@@ -88,6 +88,7 @@ COMPAT_FREEBSD6	opt_compat.h
 COMPAT_FREEBSD7	opt_compat.h
 COMPAT_FREEBSD9	opt_compat.h
 COMPAT_FREEBSD10	opt_compat.h
+COMPAT_FREEBSD11	opt_compat.h
 COMPAT_CLOUDABI32	opt_dontuse.h
 COMPAT_CLOUDABI64	opt_dontuse.h
 COMPAT_LINUXKPI	opt_compat.h
@@ -383,6 +384,7 @@ ISP_TARGET_MODE		opt_isp.h
 ISP_FW_CRASH_DUMP	opt_isp.h
 ISP_DEFAULT_ROLES	opt_isp.h
 ISP_INTERNAL_TARGET	opt_isp.h
+ISP_FCTAPE_OFF		opt_isp.h
 
 # Options used only in dev/iscsi
 ISCSI_INITIATOR_DEBUG	opt_iscsi_initiator.h
@@ -410,6 +412,7 @@ BOOTP_NFSV3		opt_bootp.h
 BOOTP_WIRED_TO		opt_bootp.h
 DEVICE_POLLING
 DUMMYNET		opt_ipdn.h
+RATELIMIT		opt_ratelimit.h
 INET			opt_inet.h
 INET6			opt_inet6.h
 IPDIVERT
@@ -514,7 +517,6 @@ NETGRAPH_IPFW		opt_netgraph.h
 NETGRAPH_KSOCKET	opt_netgraph.h
 NETGRAPH_L2TP		opt_netgraph.h
 NETGRAPH_LMI		opt_netgraph.h
-# MPPC compression requires proprietary files (not included)
 NETGRAPH_MPPC_COMPRESSION	opt_netgraph.h
 NETGRAPH_MPPC_ENCRYPTION	opt_netgraph.h
 NETGRAPH_NAT		opt_netgraph.h
@@ -984,9 +986,6 @@ RANDOM_LOADABLE	opt_global.h
 # the uma slab allocator.
 RANDOM_ENABLE_UMA	opt_global.h
 
-# Intel em(4) driver
-EM_MULTIQUEUE	opt_em.h
-
 # BHND(4) driver
 BHND_LOGLEVEL	opt_global.h
 
@@ -1001,3 +1000,8 @@ EVDEV_SUPPORT	opt_evdev.h
 EVDEV_DEBUG	opt_evdev.h
 UINPUT_DEBUG	opt_evdev.h
 
+# Hyper-V network driver
+HN_DEBUG	opt_hn.h
+
+# Encrypted kernel crash dumps
+EKCD		opt_ekcd.h

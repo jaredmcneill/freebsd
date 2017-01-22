@@ -32,6 +32,8 @@
 #include <sys/cdefs.h>
 __FBSDID("$FreeBSD$");
 
+#include "opt_compat.h"
+
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/kernel.h>
@@ -119,15 +121,10 @@ vmtotal(SYSCTL_HANDLER_ARGS)
 	 */
 	sx_slock(&allproc_lock);
 	FOREACH_PROC_IN_SYSTEM(p) {
-		if (p->p_flag & P_SYSTEM)
+		if ((p->p_flag & P_SYSTEM) != 0)
 			continue;
 		PROC_LOCK(p);
-		switch (p->p_state) {
-		case PRS_NEW:
-			PROC_UNLOCK(p);
-			continue;
-			break;
-		default:
+		if (p->p_state != PRS_NEW) {
 			FOREACH_THREAD_IN_PROC(p, td) {
 				thread_lock(td);
 				switch (td->td_state) {
@@ -144,15 +141,13 @@ vmtotal(SYSCTL_HANDLER_ARGS)
 							total.t_pw++;
 					}
 					break;
-
 				case TDS_CAN_RUN:
 					total.t_sw++;
 					break;
 				case TDS_RUNQ:
 				case TDS_RUNNING:
 					total.t_rq++;
-					thread_unlock(td);
-					continue;
+					break;
 				default:
 					break;
 				}
@@ -211,7 +206,7 @@ vmtotal(SYSCTL_HANDLER_ARGS)
 		}
 	}
 	mtx_unlock(&vm_object_list_mtx);
-	total.t_free = vm_cnt.v_free_count + vm_cnt.v_cache_count;
+	total.t_free = vm_cnt.v_free_count;
 	return (sysctl_handle_opaque(oidp, &total, sizeof(total), req));
 }
 
@@ -290,7 +285,6 @@ VM_STATS_VM(v_reactivated, "Pages reactivated by pagedaemon");
 VM_STATS_VM(v_pdwakeups, "Pagedaemon wakeups");
 VM_STATS_VM(v_pdpages, "Pages analyzed by pagedaemon");
 VM_STATS_VM(v_pdshortfalls, "Page reclamation shortfalls");
-VM_STATS_VM(v_tcached, "Total pages cached");
 VM_STATS_VM(v_dfree, "Pages freed by pagedaemon");
 VM_STATS_VM(v_pfree, "Pages freed by exiting processes");
 VM_STATS_VM(v_tfree, "Total pages freed");
@@ -305,7 +299,6 @@ VM_STATS_VM(v_active_count, "Active pages");
 VM_STATS_VM(v_inactive_target, "Desired inactive pages");
 VM_STATS_VM(v_inactive_count, "Inactive pages");
 VM_STATS_VM(v_laundry_count, "Pages eligible for laundering");
-VM_STATS_VM(v_cache_count, "Pages on cache queue");
 VM_STATS_VM(v_pageout_free_min, "Min pages reserved for kernel");
 VM_STATS_VM(v_interrupt_free_min, "Reserved pages for interrupt code");
 VM_STATS_VM(v_forks, "Number of fork() calls");
@@ -316,3 +309,14 @@ VM_STATS_VM(v_forkpages, "VM pages affected by fork()");
 VM_STATS_VM(v_vforkpages, "VM pages affected by vfork()");
 VM_STATS_VM(v_rforkpages, "VM pages affected by rfork()");
 VM_STATS_VM(v_kthreadpages, "VM pages affected by fork() by kernel");
+
+#ifdef COMPAT_FREEBSD11
+/*
+ * Provide compatibility sysctls for the benefit of old utilities which exit
+ * with an error if they cannot be found.
+ */
+SYSCTL_UINT(_vm_stats_vm, OID_AUTO, v_cache_count, CTLFLAG_RD,
+    SYSCTL_NULL_UINT_PTR, 0, "Dummy for compatibility");
+SYSCTL_UINT(_vm_stats_vm, OID_AUTO, v_tcached, CTLFLAG_RD,
+    SYSCTL_NULL_UINT_PTR, 0, "Dummy for compatibility");
+#endif

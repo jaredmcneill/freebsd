@@ -265,7 +265,7 @@ retry:
 #endif
 		VM_OBJECT_WUNLOCK(object);
 	}
-	vref(vp);
+	vrefact(vp);
 	return (object);
 }
 
@@ -974,10 +974,14 @@ vnode_pager_generic_getpages(struct vnode *vp, vm_page_t *m, int count,
 #ifdef INVARIANTS
 	KASSERT(bp->b_npages <= nitems(bp->b_pages),
 	    ("%s: buf %p overflowed", __func__, bp));
-	for (int j = 1; j < bp->b_npages; j++)
-		KASSERT(bp->b_pages[j]->pindex - 1 ==
-		    bp->b_pages[j - 1]->pindex,
-		    ("%s: pages array not consecutive, bp %p", __func__, bp));
+	for (int j = 1, prev = 0; j < bp->b_npages; j++) {
+		if (bp->b_pages[j] == bogus_page)
+			continue;
+		KASSERT(bp->b_pages[j]->pindex - bp->b_pages[prev]->pindex ==
+		    j - prev, ("%s: pages array not consecutive, bp %p",
+		     __func__, bp));
+		prev = j;
+	}
 #endif
 
 	/*
@@ -1161,8 +1165,7 @@ vnode_pager_putpages(vm_object_t object, vm_page_t *m, int count,
 	 * daemon up.  This should be probably be addressed XXX.
 	 */
 
-	if (vm_cnt.v_free_count + vm_cnt.v_cache_count <
-	    vm_cnt.v_pageout_free_min)
+	if (vm_cnt.v_free_count < vm_cnt.v_pageout_free_min)
 		flags |= VM_PAGER_PUT_SYNC;
 
 	/*
@@ -1281,6 +1284,7 @@ vnode_pager_generic_putpages(struct vnode *vp, vm_page_t *ma, int bytecount,
 	else if ((flags & VM_PAGER_CLUSTER_OK) == 0)
 		ioflags |= IO_ASYNC;
 	ioflags |= (flags & VM_PAGER_PUT_INVAL) ? IO_INVAL: 0;
+	ioflags |= (flags & VM_PAGER_PUT_NOREUSE) ? IO_NOREUSE : 0;
 	ioflags |= IO_SEQMAX << IO_SEQSHIFT;
 
 	aiov.iov_base = (caddr_t) 0;

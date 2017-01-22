@@ -205,7 +205,6 @@ vm_object_zinit(void *mem, int size, int flags)
 	object->type = OBJT_DEAD;
 	object->ref_count = 0;
 	object->rtree.rt_root = 0;
-	object->rtree.rt_flags = 0;
 	object->paging_in_progress = 0;
 	object->resident_page_count = 0;
 	object->shadow_count = 0;
@@ -1098,7 +1097,7 @@ vm_object_sync(vm_object_t object, vm_ooffset_t offset, vm_size_t size,
  */
 void
 vm_object_madvise(vm_object_t object, vm_pindex_t pindex, vm_pindex_t end,
-    int advise)
+    int advice)
 {
 	vm_pindex_t tpindex;
 	vm_object_t backing_object, tobject;
@@ -1106,11 +1105,9 @@ vm_object_madvise(vm_object_t object, vm_pindex_t pindex, vm_pindex_t end,
 
 	if (object == NULL)
 		return;
+
 	VM_OBJECT_WLOCK(object);
-	/*
-	 * Locate and adjust resident pages
-	 */
-	for (; pindex < end; pindex += 1) {
+	for (m = NULL; pindex < end; pindex++) {
 relookup:
 		tobject = object;
 		tpindex = pindex;
@@ -1119,7 +1116,7 @@ shadowlookup:
 		 * MADV_FREE only operates on OBJT_DEFAULT or OBJT_SWAP pages
 		 * and those pages must be OBJ_ONEMAPPING.
 		 */
-		if (advise == MADV_FREE) {
+		if (advice == MADV_FREE) {
 			if ((tobject->type != OBJT_DEFAULT &&
 			     tobject->type != OBJT_SWAP) ||
 			    (tobject->flags & OBJ_ONEMAPPING) == 0) {
@@ -1127,15 +1124,29 @@ shadowlookup:
 			}
 		} else if ((tobject->flags & OBJ_UNMANAGED) != 0)
 			goto unlock_tobject;
-		m = vm_page_lookup(tobject, tpindex);
-		if (m == NULL) {
-			/*
-			 * There may be swap even if there is no backing page
-			 */
-			if (advise == MADV_FREE && tobject->type == OBJT_SWAP)
+
+		/*
+		 * In the common case where the object has no backing object, we
+		 * can avoid performing lookups at each pindex.  In either case,
+		 * when applying MADV_FREE we take care to release any swap
+		 * space used to store non-resident pages.
+		 */
+		if (object->backing_object == NULL) {
+			m = (m != NULL) ? TAILQ_NEXT(m, listq) :
+			    vm_page_find_least(object, pindex);
+			tpindex = (m != NULL && m->pindex < end) ?
+			    m->pindex : end;
+			if (advice == MADV_FREE && object->type == OBJT_SWAP &&
+			    tpindex > pindex)
+				swap_pager_freespace(object, pindex,
+				    tpindex - pindex);
+			if ((pindex = tpindex) == end)
+				break;
+		} else if ((m = vm_page_lookup(tobject, tpindex)) == NULL) {
+			if (advice == MADV_FREE && tobject->type == OBJT_SWAP)
 				swap_pager_freespace(tobject, tpindex, 1);
 			/*
-			 * next object
+			 * Prepare to search the next object in the chain.
 			 */
 			backing_object = tobject->backing_object;
 			if (backing_object == NULL)
@@ -1146,11 +1157,13 @@ shadowlookup:
 				VM_OBJECT_WUNLOCK(tobject);
 			tobject = backing_object;
 			goto shadowlookup;
-		} else if (m->valid != VM_PAGE_BITS_ALL)
-			goto unlock_tobject;
+		}
+
 		/*
 		 * If the page is not in a normal state, skip it.
 		 */
+		if (m->valid != VM_PAGE_BITS_ALL)
+			goto unlock_tobject;
 		vm_page_lock(m);
 		if (m->hold_count != 0 || m->wire_count != 0) {
 			vm_page_unlock(m);
@@ -1161,7 +1174,7 @@ shadowlookup:
 		KASSERT((m->oflags & VPO_UNMANAGED) == 0,
 		    ("vm_object_madvise: page %p is not managed", m));
 		if (vm_page_busied(m)) {
-			if (advise == MADV_WILLNEED) {
+			if (advice == MADV_WILLNEED) {
 				/*
 				 * Reference the page before unlocking and
 				 * sleeping so that the page daemon is less
@@ -1173,21 +1186,18 @@ shadowlookup:
 				VM_OBJECT_WUNLOCK(object);
 			VM_OBJECT_WUNLOCK(tobject);
 			vm_page_busy_sleep(m, "madvpo", false);
+			m = NULL;
 			VM_OBJECT_WLOCK(object);
   			goto relookup;
 		}
-		if (advise == MADV_WILLNEED) {
-			vm_page_activate(m);
-		} else {
-			vm_page_advise(m, advise);
-		}
+		vm_page_advise(m, advice);
 		vm_page_unlock(m);
-		if (advise == MADV_FREE && tobject->type == OBJT_SWAP)
+		if (advice == MADV_FREE && tobject->type == OBJT_SWAP)
 			swap_pager_freespace(tobject, tpindex, 1);
 unlock_tobject:
 		if (tobject != object)
 			VM_OBJECT_WUNLOCK(tobject);
-	}	
+	}
 	VM_OBJECT_WUNLOCK(object);
 }
 
@@ -1357,7 +1367,7 @@ retry:
 			goto retry;
 		}
 
-		/* vm_page_rename() will handle dirty and cache. */
+		/* vm_page_rename() will dirty the page. */
 		if (vm_page_rename(m, new_object, idx)) {
 			VM_OBJECT_WUNLOCK(new_object);
 			VM_OBJECT_WUNLOCK(orig_object);
@@ -1437,36 +1447,40 @@ vm_object_scan_all_shadowed(vm_object_t object)
 {
 	vm_object_t backing_object;
 	vm_page_t p, pp;
-	vm_pindex_t backing_offset_index, new_pindex;
+	vm_pindex_t backing_offset_index, new_pindex, pi, ps;
 
 	VM_OBJECT_ASSERT_WLOCKED(object);
 	VM_OBJECT_ASSERT_WLOCKED(object->backing_object);
 
 	backing_object = object->backing_object;
 
-	/*
-	 * Initial conditions:
-	 *
-	 * We do not want to have to test for the existence of cache or swap
-	 * pages in the backing object.  XXX but with the new swapper this
-	 * would be pretty easy to do.
-	 */
-	if (backing_object->type != OBJT_DEFAULT)
+	if (backing_object->type != OBJT_DEFAULT &&
+	    backing_object->type != OBJT_SWAP)
 		return (false);
 
-	backing_offset_index = OFF_TO_IDX(object->backing_object_offset);
+	pi = backing_offset_index = OFF_TO_IDX(object->backing_object_offset);
+	p = vm_page_find_least(backing_object, pi);
+	ps = swap_pager_find_least(backing_object, pi);
 
-	for (p = TAILQ_FIRST(&backing_object->memq); p != NULL;
-	    p = TAILQ_NEXT(p, listq)) {
-		new_pindex = p->pindex - backing_offset_index;
+	/*
+	 * Only check pages inside the parent object's range and
+	 * inside the parent object's mapping of the backing object.
+	 */
+	for (;; pi++) {
+		if (p != NULL && p->pindex < pi)
+			p = TAILQ_NEXT(p, listq);
+		if (ps < pi)
+			ps = swap_pager_find_least(backing_object, pi);
+		if (p == NULL && ps >= backing_object->size)
+			break;
+		else if (p == NULL)
+			pi = ps;
+		else
+			pi = MIN(p->pindex, ps);
 
-		/*
-		 * Ignore pages outside the parent object's range and outside
-		 * the parent object's mapping of the backing object.
-		 */
-		if (p->pindex < backing_offset_index ||
-		    new_pindex >= object->size)
-			continue;
+		new_pindex = pi - backing_offset_index;
+		if (new_pindex >= object->size)
+			break;
 
 		/*
 		 * See if the parent has the page or if the parent's object
@@ -1591,8 +1605,7 @@ vm_object_collapse_scan(vm_object_t object, int op)
 		 * backing object to the main object.
 		 *
 		 * If the page was mapped to a process, it can remain mapped
-		 * through the rename.  vm_page_rename() will handle dirty and
-		 * cache.
+		 * through the rename.  vm_page_rename() will dirty the page.
 		 */
 		if (vm_page_rename(p, object, new_pindex)) {
 			next = vm_object_collapse_scan_wait(object, NULL, next,
