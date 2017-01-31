@@ -57,15 +57,16 @@ __FBSDID("$FreeBSD$");
 #define	A10_MMC_RESSZ		2
 #define	A10_MMC_DMA_SEGS		((MAXPHYS / PAGE_SIZE) + 1)
 #define	A10_MMC_DMA_MAX_SIZE	0x2000
+#define	A20_MMC_DMA_MAX_SIZE	0x10000
 #define	A10_MMC_DMA_FTRGLEVEL	0x20070008
 #define	A10_MMC_RESET_RETRY	1000
 
 #define	CARD_ID_FREQUENCY	400000
 
 static struct ofw_compat_data compat_data[] = {
-	{"allwinner,sun4i-a10-mmc", 1},
-	{"allwinner,sun5i-a13-mmc", 1},
-	{"allwinner,sun7i-a20-mmc", 1},
+	{"allwinner,sun4i-a10-mmc", A10_MMC_DMA_MAX_SIZE},
+	{"allwinner,sun5i-a13-mmc", A20_MMC_DMA_MAX_SIZE},
+	{"allwinner,sun7i-a20-mmc", A20_MMC_DMA_MAX_SIZE},
 	{NULL,             0}
 };
 
@@ -97,6 +98,7 @@ struct a10_mmc_softc {
 	bus_dma_tag_t		a10_dma_buf_tag;
 	int			a10_dma_map_err;
 	int			a10_dma_inuse;
+	int			a10_dma_max_size;
 };
 
 static struct resource_spec a10_mmc_res_spec[] = {
@@ -155,6 +157,8 @@ a10_mmc_attach(device_t dev)
 	sc = device_get_softc(dev);
 	sc->a10_dev = dev;
 	sc->a10_req = NULL;
+	sc->a10_dma_max_size =
+	    ofw_bus_search_compatible(dev, compat_data)->ocd_data;
 	if (bus_alloc_resources(dev, a10_mmc_res_spec, sc->a10_res) != 0) {
 		device_printf(dev, "cannot allocate device resources\n");
 		return (ENXIO);
@@ -314,8 +318,8 @@ a10_mmc_setup_dma(struct a10_mmc_softc *sc)
 	error = bus_dma_tag_create(bus_get_dma_tag(sc->a10_dev),
 	    A10_MMC_DMA_ALIGN, 0,
 	    BUS_SPACE_MAXADDR_32BIT, BUS_SPACE_MAXADDR, NULL, NULL,
-	    A10_MMC_DMA_MAX_SIZE * A10_MMC_DMA_SEGS, A10_MMC_DMA_SEGS,
-	    A10_MMC_DMA_MAX_SIZE, BUS_DMA_ALLOCNOW, NULL, NULL,
+	    sc->a10_dma_max_size * A10_MMC_DMA_SEGS, A10_MMC_DMA_SEGS,
+	    sc->a10_dma_max_size, BUS_DMA_ALLOCNOW, NULL, NULL,
 	    &sc->a10_dma_buf_tag);
 	if (error)
 		return (error);
@@ -342,7 +346,10 @@ a10_dma_cb(void *arg, bus_dma_segment_t *segs, int nsegs, int err)
 
 	dma_desc = sc->a10_dma_desc;
 	for (i = 0; i < nsegs; i++) {
-		dma_desc[i].buf_size = segs[i].ds_len;
+		if (segs[i].ds_len == sc->a10_dma_max_size)
+			dma_desc[i].buf_size = 0;
+		else
+			dma_desc[i].buf_size = segs[i].ds_len;
 		dma_desc[i].buf_addr = segs[i].ds_addr;
 		dma_desc[i].config = A10_MMC_DMA_CONFIG_CH |
 		    A10_MMC_DMA_CONFIG_OWN;
@@ -374,7 +381,7 @@ a10_mmc_prepare_dma(struct a10_mmc_softc *sc)
 	}
 
 	cmd = sc->a10_req->cmd;
-	if (cmd->data->len > A10_MMC_DMA_MAX_SIZE * A10_MMC_DMA_SEGS)
+	if (cmd->data->len > sc->a10_dma_max_size * A10_MMC_DMA_SEGS)
 		return (EFBIG);
 	error = bus_dmamap_load(sc->a10_dma_buf_tag, sc->a10_dma_buf_map,
 	    cmd->data->data, cmd->data->len, a10_dma_cb, sc, 0);
@@ -434,9 +441,7 @@ a10_mmc_reset(struct a10_mmc_softc *sc)
 		return (ETIMEDOUT);
 
 	/* Set the timeout. */
-	A10_MMC_WRITE_4(sc, A10_MMC_TMOR,
-	    A10_MMC_TMOR_DTO_LMT_SHIFT(A10_MMC_TMOR_DTO_LMT_MASK) |
-	    A10_MMC_TMOR_RTO_LMT_SHIFT(A10_MMC_TMOR_RTO_LMT_MASK));
+	A10_MMC_WRITE_4(sc, A10_MMC_TMOR, 0xffffffff);
 
 	/* Disable interrupts. */
 	A10_MMC_WRITE_4(sc, A10_MMC_IMKR, 0);
@@ -752,7 +757,7 @@ a10_mmc_read_ivar(device_t bus, device_t child, int which,
 		*(int *)result = sc->a10_host.ios.timing;
 		break;
 	case MMCBR_IVAR_MAX_DATA:
-		*(int *)result = 65535;
+		*(int *)result = 65536;
 		break;
 	}
 
