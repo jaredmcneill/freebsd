@@ -147,21 +147,19 @@ moveon:
 	/*
 	 * Process 'pin-count' and 'pin-map' props.
 	 */
-	if (OF_getprop(node, "pin-count", &pin_count, sizeof(pin_count)) <= 0)
+	if (OF_getencprop(node, "pin-count", &pin_count, sizeof(pin_count)) <= 0)
 		return (ENXIO);
-	pin_count = fdt32_to_cpu(pin_count);
 	if (pin_count > MPP_PIN_MAX)
 		return (ERANGE);
 
-	if (OF_getprop(node, "#pin-cells", &pin_cells, sizeof(pin_cells)) <= 0)
+	if (OF_getencprop(node, "#pin-cells", &pin_cells, sizeof(pin_cells)) <= 0)
 		pin_cells = MPP_PIN_CELLS;
-	pin_cells = fdt32_to_cpu(pin_cells);
 	if (pin_cells > MPP_PIN_CELLS)
 		return (ERANGE);
 	tuple_size = sizeof(pcell_t) * pin_cells;
 
 	bzero(pinmap, sizeof(pinmap));
-	len = OF_getprop(node, "pin-map", pinmap, sizeof(pinmap));
+	len = OF_getencprop(node, "pin-map", pinmap, sizeof(pinmap));
 	if (len <= 0)
 		return (ERANGE);
 	if (len % tuple_size)
@@ -176,8 +174,8 @@ moveon:
 	bzero(mpp, sizeof(mpp));
 	pinmap_ptr = pinmap;
 	for (i = 0; i < pins; i++) {
-		mpp_pin = fdt32_to_cpu(*pinmap_ptr);
-		mpp_function = fdt32_to_cpu(*(pinmap_ptr + 1));
+		mpp_pin = *pinmap_ptr;
+		mpp_function = *(pinmap_ptr + 1);
 		mpp[mpp_pin] = mpp_function;
 		pinmap_ptr += pin_cells;
 	}
@@ -246,14 +244,9 @@ platform_late_init(void)
 	/*
 	 * Re-initialise decode windows
 	 */
-#if !defined(SOC_MV_FREY)
 	if (soc_decode_win() != 0)
 		printf("WARNING: could not re-initialise decode windows! "
 		    "Running with existing settings...\n");
-#else
-	/* Disable watchdog and timers */
-	write_cpu_ctrl(CPU_TIMERS_BASE + CPU_TIMER_CONTROL, 0);
-#endif
 #if defined(SOC_MV_ARMADAXP)
 #if !defined(SMP)
 	/* For SMP case it should be initialized after APs are booted */
@@ -409,12 +402,10 @@ platform_devmap_init(void)
 
 		if (ofw_bus_node_is_compatible(child, "mrvl,lbc")) {
 			/* Check available space */
-			if (OF_getprop(child, "bank-count", (void *)&bank_count,
+			if (OF_getencprop(child, "bank-count", &bank_count,
 			    sizeof(bank_count)) <= 0)
 				/* If no property, use default value */
 				bank_count = 1;
-			else
-				bank_count = fdt32_to_cpu(bank_count);
 
 			if ((i + bank_count) >= FDT_DEVMAP_MAX)
 				return (ENOMEM);

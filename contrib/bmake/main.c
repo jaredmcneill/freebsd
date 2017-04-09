@@ -1,4 +1,4 @@
-/*	$NetBSD: main.c,v 1.250 2016/08/11 19:53:17 sjg Exp $	*/
+/*	$NetBSD: main.c,v 1.257 2017/02/08 17:47:36 christos Exp $	*/
 
 /*
  * Copyright (c) 1988, 1989, 1990, 1993
@@ -69,7 +69,7 @@
  */
 
 #ifndef MAKE_NATIVE
-static char rcsid[] = "$NetBSD: main.c,v 1.250 2016/08/11 19:53:17 sjg Exp $";
+static char rcsid[] = "$NetBSD: main.c,v 1.257 2017/02/08 17:47:36 christos Exp $";
 #else
 #include <sys/cdefs.h>
 #ifndef lint
@@ -81,7 +81,7 @@ __COPYRIGHT("@(#) Copyright (c) 1988, 1989, 1990, 1993\
 #if 0
 static char sccsid[] = "@(#)main.c	8.3 (Berkeley) 3/19/94";
 #else
-__RCSID("$NetBSD: main.c,v 1.250 2016/08/11 19:53:17 sjg Exp $");
+__RCSID("$NetBSD: main.c,v 1.257 2017/02/08 17:47:36 christos Exp $");
 #endif
 #endif /* not lint */
 #endif
@@ -155,6 +155,7 @@ Lst			create;		/* Targets to be made */
 time_t			now;		/* Time at start of make */
 GNode			*DEFAULT;	/* .DEFAULT node */
 Boolean			allPrecious;	/* .PRECIOUS given on line by itself */
+Boolean			deleteOnError;	/* .DELETE_ON_ERROR: set */
 
 static Boolean		noBuiltins;	/* -r flag */
 static Lst		makefiles;	/* ordered list of makefiles to read */
@@ -388,6 +389,7 @@ MainParseArgs(int argc, char **argv)
 	int arginc;
 	char *argvalue;
 	const char *getopt_def;
+	struct stat sa, sb;
 	char *optscan;
 	Boolean inOption, dashDash = FALSE;
 	char found_path[MAXPATHLEN + 1];	/* for searching for sys.mk */
@@ -456,6 +458,12 @@ rearg:
 				(void)fprintf(stderr, "%s: %s.\n", progname, strerror(errno));
 				exit(2);
 			}
+			if (argvalue[0] == '/' &&
+			    stat(argvalue, &sa) != -1 &&
+			    stat(curdir, &sb) != -1 &&
+			    sa.st_ino == sb.st_ino &&
+			    sa.st_dev == sb.st_dev)
+				strncpy(curdir, argvalue, MAXPATHLEN);
 			ignorePWD = TRUE;
 			break;
 		case 'D':
@@ -711,18 +719,24 @@ Main_ParseArgLine(const char *line)
 }
 
 Boolean
-Main_SetObjdir(const char *path)
+Main_SetObjdir(const char *fmt, ...)
 {
 	struct stat sb;
-	char *p = NULL;
-	char buf[MAXPATHLEN + 1];
+	char *p, *path;
+	char buf[MAXPATHLEN + 1], pbuf[MAXPATHLEN + 1];
 	Boolean rc = FALSE;
+	va_list ap;
+
+	va_start(ap, fmt);
+	vsnprintf(path = pbuf, MAXPATHLEN, fmt, ap);
+	va_end(ap);
 
 	/* expand variable substitutions */
 	if (strchr(path, '$') != 0) {
 		snprintf(buf, MAXPATHLEN, "%s", path);
 		path = p = Var_Subst(NULL, buf, VAR_GLOBAL, VARF_WANTRES);
-	}
+	} else
+		p = NULL;
 
 	if (path[0] != '/') {
 		snprintf(buf, MAXPATHLEN, "%s/%s", curdir, path);
@@ -747,6 +761,18 @@ Main_SetObjdir(const char *path)
 
 	free(p);
 	return rc;
+}
+
+static Boolean
+Main_SetVarObjdir(const char *var, const char *suffix)
+{
+	char *p1, *path;
+	if ((path = Var_Value(var, VAR_CMD, &p1)) == NULL)
+		return FALSE;
+
+	(void)Main_SetObjdir("%s%s", path, suffix);
+	free(p1);
+	return TRUE;
 }
 
 /*-
@@ -979,6 +1005,7 @@ main(int argc, char **argv)
 	noRecursiveExecute = FALSE;	/* Execute all .MAKE targets */
 	keepgoing = FALSE;		/* Stop on error */
 	allPrecious = FALSE;		/* Remove targets when interrupted */
+	deleteOnError = FALSE;		/* Historical default behavior */
 	queryFlag = FALSE;		/* This is not just a check-run */
 	noBuiltins = FALSE;		/* Read the built-in rules */
 	touchFlag = FALSE;		/* Actually update targets */
@@ -1053,6 +1080,8 @@ main(int argc, char **argv)
 #ifdef USE_META
 	meta_init();
 #endif
+	Dir_Init(NULL);		/* Dir_* safe to call from MainParseArgs */
+
 	/*
 	 * First snag any flags out of the MAKE environment variable.
 	 * (Note this is *not* MAKEFLAGS since /bin/make uses that and it's
@@ -1128,28 +1157,19 @@ main(int argc, char **argv)
 	 * MAKEOBJDIR is set in the environment, try only that value
 	 * and fall back to .CURDIR if it does not exist.
 	 *
-	 * Otherwise, try _PATH_OBJDIR.MACHINE, _PATH_OBJDIR, and
-	 * finally _PATH_OBJDIRPREFIX`pwd`, in that order.  If none
+	 * Otherwise, try _PATH_OBJDIR.MACHINE-MACHINE_ARCH, _PATH_OBJDIR.MACHINE,
+	 * and * finally _PATH_OBJDIRPREFIX`pwd`, in that order.  If none
 	 * of these paths exist, just use .CURDIR.
 	 */
 	Dir_Init(curdir);
-	(void)Main_SetObjdir(curdir);
+	(void)Main_SetObjdir("%s", curdir);
 
-	if ((path = Var_Value("MAKEOBJDIRPREFIX", VAR_CMD, &p1)) != NULL) {
-		(void)snprintf(mdpath, MAXPATHLEN, "%s%s", path, curdir);
-		(void)Main_SetObjdir(mdpath);
-		free(p1);
-	} else if ((path = Var_Value("MAKEOBJDIR", VAR_CMD, &p1)) != NULL) {
-		(void)Main_SetObjdir(path);
-		free(p1);
-	} else {
-		(void)snprintf(mdpath, MAXPATHLEN, "%s.%s", _PATH_OBJDIR, machine);
-		if (!Main_SetObjdir(mdpath) && !Main_SetObjdir(_PATH_OBJDIR)) {
-			(void)snprintf(mdpath, MAXPATHLEN, "%s%s", 
-					_PATH_OBJDIRPREFIX, curdir);
-			(void)Main_SetObjdir(mdpath);
-		}
-	}
+	if (!Main_SetVarObjdir("MAKEOBJDIRPREFIX", curdir) &&
+	    !Main_SetVarObjdir("MAKEOBJDIR", "") &&
+	    !Main_SetObjdir("%s.%s-%s", _PATH_OBJDIR, machine, machine_arch) &&
+	    !Main_SetObjdir("%s.%s", _PATH_OBJDIR, machine) &&
+	    !Main_SetObjdir("%s", _PATH_OBJDIR))
+		(void)Main_SetObjdir("%s%s", _PATH_OBJDIRPREFIX, curdir);
 
 	/*
 	 * Initialize archive, target and suffix modules in preparation for
@@ -1303,8 +1323,9 @@ main(int argc, char **argv)
 	    fprintf(debug_file, "job_pipe %d %d, maxjobs %d, tokens %d, compat %d\n",
 		jp_0, jp_1, maxJobs, maxJobTokens, compatMake);
 
-	Main_ExportMAKEFLAGS(TRUE);	/* initial export */
-
+	if (!printVars)
+	    Main_ExportMAKEFLAGS(TRUE);	/* initial export */
+	
 	/*
 	 * For compatibility, look at the directories in the VPATH variable
 	 * and add them to the search path, if the variable is defined. The
@@ -1922,7 +1943,7 @@ PrintAddr(void *a, void *b)
 
 
 static int
-addErrorCMD(void *cmdp, void *gnp)
+addErrorCMD(void *cmdp, void *gnp MAKE_ATTR_UNUSED)
 {
     if (cmdp == NULL)
 	return 1;			/* stop */

@@ -109,9 +109,9 @@ libstand_bzlib_private.h: bzlib_private.h
 	sed -e 's|<stdlib.h>|"stand.h"|' \
 		${.ALLSRC} > ${.TARGET}
 
-# decompression functionality from libz
-.PATH: ${LIBSTAND_SRC}/../libz
-CFLAGS+=-DHAVE_MEMCPY -I${LIBSTAND_SRC}/../libz
+# decompression functionality from zlib
+.PATH: ${LIBSTAND_SRC}/../../contrib/zlib
+CFLAGS+=-DHAVE_MEMCPY -I${LIBSTAND_SRC}/../../contrib/zlib
 SRCS+=	adler32.c crc32.c libstand_zutil.h libstand_gzguts.h
 
 .for file in infback.c inffast.c inflate.c inftrees.c zutil.c
@@ -154,6 +154,10 @@ SRCS+=	pkgfs.c
 .if ${MK_NAND} != "no"
 SRCS+=	nandfs.c
 .endif
+
+# explicit_bzero
+.PATH: ${SRCTOP}/sys/libkern
+SRCS+=  explicit_bzero.c
 
 .include <bsd.stand.mk>
 .include <bsd.lib.mk>

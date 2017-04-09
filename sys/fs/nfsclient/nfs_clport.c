@@ -13,7 +13,7 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 4. Neither the name of the University nor the names of its contributors
+ * 3. Neither the name of the University nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
  *
@@ -82,7 +82,6 @@ extern short nfsv4_cbport;
 extern int nfscl_enablecallb;
 extern int nfs_numnfscbd;
 extern int nfscl_inited;
-struct mtx nfs_clstate_mutex;
 struct mtx ncl_iod_mutex;
 NFSDLOCKMUTEX;
 
@@ -1381,8 +1380,6 @@ nfscl_modevent(module_t mod, int type, void *data)
 		if (loaded)
 			return (0);
 		newnfs_portinit();
-		mtx_init(&nfs_clstate_mutex, "nfs_clstate_mutex", NULL,
-		    MTX_DEF);
 		mtx_init(&ncl_iod_mutex, "ncl_iod_mutex", NULL, MTX_DEF);
 		nfscl_init();
 		NFSD_LOCK();
@@ -1406,7 +1403,6 @@ nfscl_modevent(module_t mod, int type, void *data)
 		ncl_call_invalcaches = NULL;
 		nfsd_call_nfscl = NULL;
 		/* and get rid of the mutexes */
-		mtx_destroy(&nfs_clstate_mutex);
 		mtx_destroy(&ncl_iod_mutex);
 		loaded = 0;
 		break;

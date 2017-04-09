@@ -16,7 +16,7 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 4. Neither the name of the University nor the names of its contributors
+ * 3. Neither the name of the University nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
  *
@@ -39,6 +39,7 @@
 __FBSDID("$FreeBSD$");
 
 #include <sys/types.h>
+#include <sys/limits.h>
 #include <sys/endian.h>
 #include <netinet/in.h>
 #include <netinet/in_systm.h>
@@ -61,8 +62,6 @@ __FBSDID("$FreeBSD$");
 
 
 struct in_addr servip;
-
-static n_long	nmask, smask;
 
 static time_t	bot;
 
@@ -223,30 +222,19 @@ bootp(sock, flag)
 	bcopy(rbuf.rbootp.bp_file, bootfile, sizeof(bootfile));
 	bootfile[sizeof(bootfile) - 1] = '\0';
 
-	if (IN_CLASSA(ntohl(myip.s_addr)))
-		nmask = htonl(IN_CLASSA_NET);
-	else if (IN_CLASSB(ntohl(myip.s_addr)))
-		nmask = htonl(IN_CLASSB_NET);
-	else
-		nmask = htonl(IN_CLASSC_NET);
-#ifdef BOOTP_DEBUG
-	if (debug)
-		printf("'native netmask' is %s\n", intoa(nmask));
-#endif
-
-	/* Check subnet mask against net mask; toss if bogus */
-	if ((nmask & smask) != nmask) {
+	if (!netmask) {
+		if (IN_CLASSA(ntohl(myip.s_addr)))
+			netmask = htonl(IN_CLASSA_NET);
+		else if (IN_CLASSB(ntohl(myip.s_addr)))
+			netmask = htonl(IN_CLASSB_NET);
+		else
+			netmask = htonl(IN_CLASSC_NET);
 #ifdef BOOTP_DEBUG
 		if (debug)
-			printf("subnet mask (%s) bad\n", intoa(smask));
+			printf("'native netmask' is %s\n", intoa(netmask));
 #endif
-		smask = 0;
 	}
 
-	/* Get subnet (or natural net) mask */
-	netmask = nmask;
-	if (smask)
-		netmask = smask;
 #ifdef BOOTP_DEBUG
 	if (debug)
 		printf("mask: %s\n", intoa(netmask));
@@ -357,6 +345,17 @@ bad:
 	return (-1);
 }
 
+int
+dhcp_try_rfc1048(u_char *cp, u_int len)
+{
+
+	expected_dhcpmsgtype = DHCPACK;
+	if (bcmp(vm_rfc1048, cp, sizeof(vm_rfc1048)) == 0) {
+		return (vend_rfc1048(cp, len));
+	}
+	return (-1);
+}
+
 static int
 vend_rfc1048(cp, len)
 	u_char *cp;
@@ -385,7 +384,7 @@ vend_rfc1048(cp, len)
 			break;
 
 		if (tag == TAG_SUBNET_MASK) {
-			bcopy(cp, &smask, sizeof(smask));
+			bcopy(cp, &netmask, sizeof(netmask));
 		}
 		if (tag == TAG_GATEWAY) {
 			bcopy(cp, &gateip.s_addr, sizeof(gateip.s_addr));
@@ -405,11 +404,29 @@ vend_rfc1048(cp, len)
 			strlcpy(hostname, val, sizeof(hostname));
 		}
 		if (tag == TAG_INTF_MTU) {
+			intf_mtu = 0;
 			if ((val = getenv("dhcp.interface-mtu")) != NULL) {
-				intf_mtu = (u_int)strtoul(val, NULL, 0);
-			} else {
-				intf_mtu = be16dec(cp);
+				unsigned long tmp;
+				char *end;
+
+				errno = 0;
+				/*
+				 * Do not allow MTU to exceed max IPv4 packet
+				 * size, max value of 16-bit word.
+				 */
+				tmp = strtoul(val, &end, 0);
+				if (errno != 0 ||
+				    *val == '\0' || *end != '\0' ||
+				    tmp > USHRT_MAX) {
+					printf("%s: bad value: \"%s\", "
+					    "ignoring\n",
+					    "dhcp.interface-mtu", val);
+				} else {
+					intf_mtu = (u_int)tmp;
+				}
 			}
+			if (intf_mtu <= 0)
+				intf_mtu = be16dec(cp);
 		}
 #ifdef SUPPORT_DHCP
 		if (tag == TAG_DHCP_MSGTYPE) {
@@ -445,7 +462,7 @@ vend_cmu(cp)
 	vp = (struct cmu_vend *)cp;
 
 	if (vp->v_smask.s_addr != 0) {
-		smask = vp->v_smask.s_addr;
+		netmask = vp->v_smask.s_addr;
 	}
 	if (vp->v_dgate.s_addr != 0) {
 		gateip = vp->v_dgate;

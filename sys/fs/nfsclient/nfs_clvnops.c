@@ -13,7 +13,7 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 4. Neither the name of the University nor the names of its contributors
+ * 3. Neither the name of the University nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
  *
@@ -104,15 +104,6 @@ extern struct nfsstatsv1 nfsstatsv1;
 extern int nfsrv_useacl;
 extern int nfscl_debuglevel;
 MALLOC_DECLARE(M_NEWNFSREQ);
-
-/*
- * Ifdef for FreeBSD-current merged buffer cache. It is unfortunate that these
- * calls are not in getblk() and brelse() so that they would not be necessary
- * here.
- */
-#ifndef B_VMIO
-#define	vfs_busy_pages(bp, f)
-#endif
 
 static vop_read_t	nfsfifo_read;
 static vop_write_t	nfsfifo_write;
@@ -529,6 +520,8 @@ nfs_open(struct vop_open_args *ap)
 	if (np->n_flag & NMODIFIED) {
 		mtx_unlock(&np->n_mtx);
 		error = ncl_vinvalbuf(vp, V_SAVE, ap->a_td, 1);
+		if (error == 0 && (vp->v_iflag & VI_DOOMED) != 0)
+			return (EBADF);
 		if (error == EINTR || error == EIO) {
 			if (NFS_ISV4(vp))
 				(void) nfsrpc_close(vp, 0, ap->a_td);
@@ -565,6 +558,8 @@ nfs_open(struct vop_open_args *ap)
 				np->n_direofoffset = 0;
 			mtx_unlock(&np->n_mtx);
 			error = ncl_vinvalbuf(vp, V_SAVE, ap->a_td, 1);
+			if (error == 0 && (vp->v_iflag & VI_DOOMED) != 0)
+				return (EBADF);
 			if (error == EINTR || error == EIO) {
 				if (NFS_ISV4(vp))
 					(void) nfsrpc_close(vp, 0, ap->a_td);
@@ -585,6 +580,8 @@ nfs_open(struct vop_open_args *ap)
 		if (np->n_directio_opens == 0) {
 			mtx_unlock(&np->n_mtx);
 			error = ncl_vinvalbuf(vp, V_SAVE, ap->a_td, 1);
+			if (error == 0 && (vp->v_iflag & VI_DOOMED) != 0)
+				return (EBADF);
 			if (error) {
 				if (NFS_ISV4(vp))
 					(void) nfsrpc_close(vp, 0, ap->a_td);
@@ -723,8 +720,11 @@ nfs_close(struct vop_close_args *ap)
 				 * np->n_flag &= ~NMODIFIED;
 				 */
 			}
-		} else
-		    error = ncl_vinvalbuf(vp, V_SAVE, ap->a_td, 1);
+		} else {
+			error = ncl_vinvalbuf(vp, V_SAVE, ap->a_td, 1);
+			if (error == 0 && (vp->v_iflag & VI_DOOMED) != 0)
+				return (EBADF);
+		}
 		mtx_lock(&np->n_mtx);
 	    }
  	    /* 
@@ -940,13 +940,13 @@ nfs_setattr(struct vop_setattr_args *ap)
  			if (np->n_flag & NMODIFIED) {
 			    tsize = np->n_size;
 			    mtx_unlock(&np->n_mtx);
- 			    if (vap->va_size == 0)
- 				error = ncl_vinvalbuf(vp, 0, td, 1);
- 			    else
- 				error = ncl_vinvalbuf(vp, V_SAVE, td, 1);
- 			    if (error) {
-				vnode_pager_setsize(vp, tsize);
-				return (error);
+			    error = ncl_vinvalbuf(vp, vap->va_size == 0 ?
+			        0 : V_SAVE, td, 1);
+			    if (error == 0 && (vp->v_iflag & VI_DOOMED) != 0)
+				    error = EBADF;
+ 			    if (error != 0) {
+				    vnode_pager_setsize(vp, tsize);
+				    return (error);
 			    }
 			    /*
 			     * Call nfscl_delegmodtime() to set the modify time
@@ -970,8 +970,10 @@ nfs_setattr(struct vop_setattr_args *ap)
 		if ((vap->va_mtime.tv_sec != VNOVAL || vap->va_atime.tv_sec != VNOVAL) && 
 		    (np->n_flag & NMODIFIED) && vp->v_type == VREG) {
 			mtx_unlock(&np->n_mtx);
-			if ((error = ncl_vinvalbuf(vp, V_SAVE, td, 1)) != 0 &&
-			    (error == EINTR || error == EIO))
+			error = ncl_vinvalbuf(vp, V_SAVE, td, 1);
+			if (error == 0 && (vp->v_iflag & VI_DOOMED) != 0)
+				return (EBADF);
+			if (error == EINTR || error == EIO)
 				return (error);
 		} else
 			mtx_unlock(&np->n_mtx);
@@ -1674,8 +1676,10 @@ nfs_remove(struct vop_remove_args *ap)
 		 * unnecessary delayed writes later.
 		 */
 		error = ncl_vinvalbuf(vp, 0, cnp->cn_thread, 1);
-		/* Do the rpc */
-		if (error != EINTR && error != EIO)
+		if (error == 0 && (vp->v_iflag & VI_DOOMED) != 0)
+			error = EBADF;
+		else if (error != EINTR && error != EIO)
+			/* Do the rpc */
 			error = nfs_removerpc(dvp, vp, cnp->cn_nameptr,
 			    cnp->cn_namelen, cnp->cn_cred, cnp->cn_thread);
 		/*
@@ -2578,13 +2582,20 @@ ncl_commit(struct vnode *vp, u_quad_t offset, int cnt, struct ucred *cred,
 static int
 nfs_strategy(struct vop_strategy_args *ap)
 {
-	struct buf *bp = ap->a_bp;
+	struct buf *bp;
+	struct vnode *vp;
 	struct ucred *cr;
 
+	bp = ap->a_bp;
+	vp = ap->a_vp;
+	KASSERT(bp->b_vp == vp, ("missing b_getvp"));
 	KASSERT(!(bp->b_flags & B_DONE),
 	    ("nfs_strategy: buffer %p unexpectedly marked B_DONE", bp));
 	BUF_ASSERT_HELD(bp);
 
+	if (vp->v_type == VREG && bp->b_blkno == bp->b_lblkno)
+		bp->b_blkno = bp->b_lblkno * (vp->v_bufobj.bo_bsize /
+		    DEV_BSIZE);
 	if (bp->b_iocmd == BIO_READ)
 		cr = bp->b_rcred;
 	else
@@ -2596,8 +2607,8 @@ nfs_strategy(struct vop_strategy_args *ap)
 	 * otherwise just do it ourselves.
 	 */
 	if ((bp->b_flags & B_ASYNC) == 0 ||
-	    ncl_asyncio(VFSTONFS(ap->a_vp->v_mount), bp, NOCRED, curthread))
-		(void) ncl_doio(ap->a_vp, bp, cr, curthread, 1);
+	    ncl_asyncio(VFSTONFS(vp->v_mount), bp, NOCRED, curthread))
+		(void) ncl_doio(vp, bp, cr, curthread, 1);
 	return (0);
 }
 
@@ -3057,6 +3068,10 @@ nfs_advlock(struct vop_advlock_args *ap)
 			if ((np->n_flag & NMODIFIED) || ret ||
 			    np->n_change != va.va_filerev) {
 				(void) ncl_vinvalbuf(vp, V_SAVE, td, 1);
+				if ((vp->v_iflag & VI_DOOMED) != 0) {
+					NFSVOPUNLOCK(vp, 0);
+					return (EBADF);
+				}
 				np->n_attrstamp = 0;
 				KDTRACE_NFS_ATTRCACHE_FLUSH_DONE(vp);
 				ret = VOP_GETATTR(vp, &va, cred);
@@ -3137,8 +3152,8 @@ nfs_print(struct vop_print_args *ap)
 	struct vnode *vp = ap->a_vp;
 	struct nfsnode *np = VTONFS(vp);
 
-	printf("\tfileid %ld fsid 0x%x", np->n_vattr.na_fileid,
-	    np->n_vattr.na_fsid);
+	printf("\tfileid %jd fsid 0x%jx", (uintmax_t)np->n_vattr.na_fileid,
+	    (uintmax_t)np->n_vattr.na_fsid);
 	if (vp->v_type == VFIFO)
 		fifo_printinfo(vp);
 	printf("\n");
@@ -3152,27 +3167,21 @@ nfs_print(struct vop_print_args *ap)
 int
 ncl_writebp(struct buf *bp, int force __unused, struct thread *td)
 {
-	int s;
-	int oldflags = bp->b_flags;
-#if 0
-	int retv = 1;
-	off_t off;
-#endif
+	int oldflags, rtval;
 
 	BUF_ASSERT_HELD(bp);
 
 	if (bp->b_flags & B_INVAL) {
 		brelse(bp);
-		return(0);
+		return (0);
 	}
 
+	oldflags = bp->b_flags;
 	bp->b_flags |= B_CACHE;
 
 	/*
 	 * Undirty the bp.  We will redirty it later if the I/O fails.
 	 */
-
-	s = splbio();
 	bundirty(bp);
 	bp->b_flags &= ~B_DONE;
 	bp->b_ioflags &= ~BIO_ERROR;
@@ -3180,7 +3189,6 @@ ncl_writebp(struct buf *bp, int force __unused, struct thread *td)
 
 	bufobj_wref(bp->b_bufobj);
 	curthread->td_ru.ru_oublock++;
-	splx(s);
 
 	/*
 	 * Note: to avoid loopback deadlocks, we do not
@@ -3192,19 +3200,14 @@ ncl_writebp(struct buf *bp, int force __unused, struct thread *td)
 	bp->b_iooffset = dbtob(bp->b_blkno);
 	bstrategy(bp);
 
-	if( (oldflags & B_ASYNC) == 0) {
-		int rtval = bufwait(bp);
+	if ((oldflags & B_ASYNC) != 0)
+		return (0);
 
-		if (oldflags & B_DELWRI) {
-			s = splbio();
-			reassignbuf(bp);
-			splx(s);
-		}
-		brelse(bp);
-		return (rtval);
-	}
-
-	return (0);
+	rtval = bufwait(bp);
+	if (oldflags & B_DELWRI)
+		reassignbuf(bp);
+	brelse(bp);
+	return (rtval);
 }
 
 /*

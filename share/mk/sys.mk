@@ -13,7 +13,7 @@ unix		?=	We run FreeBSD, not UNIX.
 # and/or endian.  This is called MACHINE_CPU in NetBSD, but that's used
 # for something different in FreeBSD.
 #
-MACHINE_CPUARCH=${MACHINE_ARCH:C/mips(n32|64)?(el)?(hf)?/mips/:C/arm(v6)?(eb|hf)?/arm/:C/powerpc(64|spe)/powerpc/:C/riscv64/riscv/}
+MACHINE_CPUARCH=${MACHINE_ARCH:C/mips(n32|64)?(el)?(hf)?/mips/:C/arm(v6)?(eb|hf)?/arm/:C/powerpc(64|spe)/powerpc/:C/riscv64(sf)?/riscv/}
 .endif
 
 
@@ -217,9 +217,12 @@ INSTALL		?=	install
 LEX		?=	lex
 LFLAGS		?=
 
+# LDFLAGS is for CC, _LDFLAGS is for LD.  Generate _LDFLAGS from
+# LDFLAGS by stripping -Wl, from pass-through arguments and dropping
+# compiler driver flags (e.g. -mabi=*) that conflict with flags to LD.
 LD		?=	ld
-LDFLAGS		?=				# LDFLAGS is for CC, 
-_LDFLAGS	=	${LDFLAGS:S/-Wl,//g}	# strip -Wl, for LD
+LDFLAGS		?=
+_LDFLAGS	=	${LDFLAGS:S/-Wl,//g:N-mabi=*}
 
 LINT		?=	lint
 LINTFLAGS	?=	-cghapbx

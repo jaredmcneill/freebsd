@@ -700,6 +700,8 @@ g_mirror_clear_metadata(struct g_mirror_disk *disk)
 	g_topology_assert_not();
 	sx_assert(&disk->d_softc->sc_lock, SX_LOCKED);
 
+	if (disk->d_softc->sc_type != G_MIRROR_TYPE_AUTOMATIC)
+		return (0);
 	error = g_mirror_write_metadata(disk, NULL);
 	if (error == 0) {
 		G_MIRROR_DEBUG(2, "Metadata on %s cleared.",
@@ -765,6 +767,8 @@ g_mirror_update_metadata(struct g_mirror_disk *disk)
 	sc = disk->d_softc;
 	sx_assert(&sc->sc_lock, SX_LOCKED);
 
+	if (sc->sc_type != G_MIRROR_TYPE_AUTOMATIC)
+		return;
 	if ((sc->sc_flags & G_MIRROR_DEVICE_FLAG_WIPE) == 0)
 		g_mirror_fill_metadata(sc, disk, &md);
 	error = g_mirror_write_metadata(disk, &md);
@@ -1913,6 +1917,10 @@ g_mirror_worker(void *arg)
 					kproc_exit(0);
 				}
 				mtx_lock(&sc->sc_queue_mtx);
+				if (bioq_first(&sc->sc_queue) != NULL) {
+					mtx_unlock(&sc->sc_queue_mtx);
+					continue;
+				}
 			}
 			sx_xunlock(&sc->sc_lock);
 			/*
@@ -2471,11 +2479,8 @@ g_mirror_update_device(struct g_mirror_softc *sc, bool force)
 		if (g_mirror_ndisks(sc, G_MIRROR_DISK_STATE_ACTIVE) == 0 &&
 		    g_mirror_ndisks(sc, G_MIRROR_DISK_STATE_NEW) == 0) {
 			/*
-			 * No active disks or no disks at all,
-			 * so destroy device.
+			 * No usable disks, so destroy the device.
 			 */
-			if (sc->sc_provider != NULL)
-				g_mirror_destroy_provider(sc);
 			sc->sc_flags |= G_MIRROR_DEVICE_FLAG_DESTROY;
 			break;
 		} else if (g_mirror_ndisks(sc,
@@ -2942,8 +2947,9 @@ end:
 	return (error);
 }
 
-static struct g_geom *
-g_mirror_create(struct g_class *mp, const struct g_mirror_metadata *md)
+struct g_geom *
+g_mirror_create(struct g_class *mp, const struct g_mirror_metadata *md,
+    u_int type)
 {
 	struct g_mirror_softc *sc;
 	struct g_geom *gp;
@@ -2966,6 +2972,7 @@ g_mirror_create(struct g_class *mp, const struct g_mirror_metadata *md)
 	gp->access = g_mirror_access;
 	gp->dumpconf = g_mirror_dumpconf;
 
+	sc->sc_type = type;
 	sc->sc_id = md->md_mid;
 	sc->sc_slice = md->md_slice;
 	sc->sc_balance = md->md_balance;
@@ -3034,7 +3041,7 @@ g_mirror_destroy(struct g_mirror_softc *sc, int how)
 	g_topology_assert_not();
 	sx_assert(&sc->sc_lock, SX_XLOCKED);
 
-	if (sc->sc_provider_open != 0 || SCHEDULER_STOPPED()) {
+	if (sc->sc_provider_open != 0) {
 		switch (how) {
 		case G_MIRROR_DESTROY_SOFT:
 			G_MIRROR_DEBUG(1,
@@ -3142,6 +3149,8 @@ g_mirror_taste(struct g_class *mp, struct g_provider *pp, int flags __unused)
 		sc = gp->softc;
 		if (sc == NULL)
 			continue;
+		if (sc->sc_type != G_MIRROR_TYPE_AUTOMATIC)
+			continue;
 		if (sc->sc_sync.ds_geom == gp)
 			continue;
 		if (strcmp(md.md_name, sc->sc_name) != 0)
@@ -3154,7 +3163,7 @@ g_mirror_taste(struct g_class *mp, struct g_provider *pp, int flags __unused)
 		break;
 	}
 	if (gp == NULL) {
-		gp = g_mirror_create(mp, &md);
+		gp = g_mirror_create(mp, &md, G_MIRROR_TYPE_AUTOMATIC);
 		if (gp == NULL) {
 			G_MIRROR_DEBUG(0, "Cannot create device %s.",
 			    md.md_name);
@@ -3302,6 +3311,19 @@ g_mirror_dumpconf(struct sbuf *sb, const char *indent, struct g_geom *gp,
 	} else {
 		g_topology_unlock();
 		sx_xlock(&sc->sc_lock);
+		sbuf_printf(sb, "%s<Type>", indent);
+		switch (sc->sc_type) {
+		case G_MIRROR_TYPE_AUTOMATIC:
+			sbuf_printf(sb, "AUTOMATIC");
+			break;
+		case G_MIRROR_TYPE_MANUAL:
+			sbuf_printf(sb, "MANUAL");
+			break;
+		default:
+			sbuf_printf(sb, "UNKNOWN");
+			break;
+		}
+		sbuf_printf(sb, "</Type>\n");
 		sbuf_printf(sb, "%s<ID>%u</ID>\n", indent, (u_int)sc->sc_id);
 		sbuf_printf(sb, "%s<SyncID>%u</SyncID>\n", indent, sc->sc_syncid);
 		sbuf_printf(sb, "%s<GenID>%u</GenID>\n", indent, sc->sc_genid);
@@ -3352,6 +3374,9 @@ g_mirror_shutdown_post_sync(void *arg, int howto)
 	struct g_geom *gp, *gp2;
 	struct g_mirror_softc *sc;
 	int error;
+
+	if (panicstr != NULL)
+		return;
 
 	mp = arg;
 	g_topology_lock();

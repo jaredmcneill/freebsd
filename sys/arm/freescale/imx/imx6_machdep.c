@@ -50,9 +50,16 @@ __FBSDID("$FreeBSD$");
 #include <dev/fdt/fdt_common.h>
 #include <dev/ofw/openfirm.h>
 
+#include <arm/freescale/imx/imx6_mp.h>
+
 #include "platform_if.h"
 
 static uint32_t gpio1_node;
+
+static platform_attach_t imx6_attach;
+static platform_devmap_init_t imx6_devmap_init;
+static platform_late_init_t imx6_late_init;
+static platform_cpu_reset_t imx6_cpu_reset;
 
 #ifndef INTRNG
 /*
@@ -112,7 +119,7 @@ fdt_pic_decode_t fdt_pic_table[] = {
  *  - GIC node exists and is its own interrupt parent.
  *
  * This applies to all models of imx6.  Luckily all of them have the devices
- * involved at the same addresses on the same busses, so we don't need any
+ * involved at the same addresses on the same buses, so we don't need any
  * per-soc logic.  We handle this at platform attach time rather than via the
  * fdt_fixup_table, because the latter requires matching on the FDT "model"
  * property, and this applies to all boards including those not yet invented.
@@ -156,13 +163,6 @@ fix_fdt_interrupt_data(void)
 
 	gicxref = cpu_to_fdt32(gicxref);
 	OF_setprop(socnode, "interrupt-parent", &gicxref, sizeof(gicxref));
-}
-
-static vm_offset_t
-imx6_lastaddr(platform_t plat)
-{
-
-	return (devmap_lastaddr());
 }
 
 static int
@@ -259,7 +259,8 @@ imx6_cpu_reset(platform_t plat)
  *      hwsoc      = 0x00000063
  *      scu config = 0x00005503
  */
-u_int imx_soc_type()
+u_int
+imx_soc_type(void)
 {
 	uint32_t digprog, hwsoc;
 	uint32_t *pcr;
@@ -343,14 +344,18 @@ early_putc_t *early_putc = imx6_early_putc;
 
 static platform_method_t imx6_methods[] = {
 	PLATFORMMETHOD(platform_attach,		imx6_attach),
-	PLATFORMMETHOD(platform_lastaddr,	imx6_lastaddr),
 	PLATFORMMETHOD(platform_devmap_init,	imx6_devmap_init),
 	PLATFORMMETHOD(platform_late_init,	imx6_late_init),
 	PLATFORMMETHOD(platform_cpu_reset,	imx6_cpu_reset),
+
+#ifdef SMP
+	PLATFORMMETHOD(platform_mp_start_ap,	imx6_mp_start_ap),
+	PLATFORMMETHOD(platform_mp_setmaxid,	imx6_mp_setmaxid),
+#endif
 
 	PLATFORMMETHOD_END,
 };
 
 FDT_PLATFORM_DEF2(imx6, imx6s, "i.MX6 Solo", 0, "fsl,imx6s", 0);
-FDT_PLATFORM_DEF2(imx6, imx6d, "i.MX6 Dual", 0, "fsl,imx6d", 0);
+FDT_PLATFORM_DEF2(imx6, imx6d, "i.MX6 Dual", 0, "fsl,imx6dl", 0);
 FDT_PLATFORM_DEF2(imx6, imx6q, "i.MX6 Quad", 0, "fsl,imx6q", 0);

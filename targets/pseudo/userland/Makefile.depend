@@ -878,11 +878,6 @@ DIRDEPS.mips= \
 	sbin/bsdlabel \
 	sbin/fdisk
 
-DIRDEPS.pc98= \
-	sbin/bsdlabel \
-	sbin/fdisk_pc98 \
-	sbin/sconfig
-
 DIRDEPS.sparc64= \
 	sbin/bsdlabel \
 	sbin/sunlabel \
@@ -898,6 +893,10 @@ DIRDEPS.powerpc= \
 DIRDEPS+= \
 	usr.sbin/blacklistctl \
 	usr.sbin/blacklistd
+.endif
+
+.if ${MK_CXGBETOOL} != "no"
+DIRDEPS+= usr.sbin/cxgbetool
 .endif
 
 .if ${MK_GPL_DTC} != "yes"

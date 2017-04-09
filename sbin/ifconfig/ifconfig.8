@@ -9,7 +9,7 @@
 .\" 2. Redistributions in binary form must reproduce the above copyright
 .\"    notice, this list of conditions and the following disclaimer in the
 .\"    documentation and/or other materials provided with the distribution.
-.\" 4. Neither the name of the University nor the names of its contributors
+.\" 3. Neither the name of the University nor the names of its contributors
 .\"    may be used to endorse or promote products derived from this software
 .\"    without specific prior written permission.
 .\"
@@ -28,7 +28,7 @@
 .\"     From: @(#)ifconfig.8	8.3 (Berkeley) 1/5/94
 .\" $FreeBSD$
 .\"
-.Dd September 17, 2016
+.Dd January 18, 2017
 .Dt IFCONFIG 8
 .Os
 .Sh NAME
@@ -460,6 +460,8 @@ this directive is used to select between 802.11a
 and 802.11g
 .Pq Cm 11g
 operating modes.
+.It Cm txrtlmt
+Set if the driver supports TX rate limiting.
 .It Cm inst Ar minst , Cm instance Ar minst
 Set the media instance to
 .Ar minst .
@@ -830,13 +832,13 @@ is one of
 .Cm sta ,
 .Cm ahdemo
 (or
-.Cm adhoc-demo ),
+.Cm adhoc-demo ) ,
 .Cm ibss ,
 (or
-.Cm adhoc ),
+.Cm adhoc ) ,
 .Cm ap ,
 (or
-.Cm hostap ),
+.Cm hostap ) ,
 .Cm wds ,
 .Cm tdma ,
 .Cm mesh ,

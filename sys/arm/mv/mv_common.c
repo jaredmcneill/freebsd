@@ -76,9 +76,7 @@ MALLOC_DEFINE(M_IDMA, "idma", "idma dma test memory");
 
 static int win_eth_can_remap(int i);
 
-#ifndef SOC_MV_FREY
 static int decode_win_cpu_valid(void);
-#endif
 static int decode_win_usb_valid(void);
 static int decode_win_usb3_valid(void);
 static int decode_win_eth_valid(void);
@@ -88,9 +86,7 @@ static int decode_win_sata_valid(void);
 static int decode_win_idma_valid(void);
 static int decode_win_xor_valid(void);
 
-#ifndef SOC_MV_FREY
 static void decode_win_cpu_setup(void);
-#endif
 #ifdef SOC_MV_ARMADAXP
 static int decode_win_sdram_fixup(void);
 #endif
@@ -98,6 +94,7 @@ static void decode_win_usb_setup(u_long);
 static void decode_win_usb3_setup(u_long);
 static void decode_win_eth_setup(u_long);
 static void decode_win_sata_setup(u_long);
+static void decode_win_ahci_setup(u_long);
 
 static void decode_win_idma_setup(u_long);
 static void decode_win_xor_setup(u_long);
@@ -107,6 +104,7 @@ static void decode_win_usb3_dump(u_long);
 static void decode_win_eth_dump(u_long base);
 static void decode_win_idma_dump(u_long base);
 static void decode_win_xor_dump(u_long base);
+static void decode_win_ahci_dump(u_long base);
 
 static int fdt_get_ranges(const char *, void *, int, int *, int *);
 #ifdef SOC_MV_ARMADA38X
@@ -139,6 +137,7 @@ static struct soc_node_spec soc_nodes[] = {
 	{ "mrvl,ge", &decode_win_eth_setup, &decode_win_eth_dump },
 	{ "mrvl,usb-ehci", &decode_win_usb_setup, &decode_win_usb_dump },
 	{ "marvell,armada-380-xhci", &decode_win_usb3_setup, &decode_win_usb3_dump },
+	{ "marvell,armada-380-ahci", &decode_win_ahci_setup, &decode_win_ahci_dump },
 	{ "mrvl,sata", &decode_win_sata_setup, NULL },
 	{ "mrvl,xor", &decode_win_xor_setup, &decode_win_xor_dump },
 	{ "mrvl,idma", &decode_win_idma_setup, &decode_win_idma_dump },
@@ -146,7 +145,12 @@ static struct soc_node_spec soc_nodes[] = {
 	{ NULL, NULL, NULL },
 };
 
-struct fdt_pm_mask_entry fdt_pm_mask_table[] = {
+struct fdt_pm_mask_entry {
+	char		*compat;
+	uint32_t	mask;
+};
+
+static struct fdt_pm_mask_entry fdt_pm_mask_table[] = {
 	{ "mrvl,ge",		CPU_PM_CTRL_GE(0) },
 	{ "mrvl,ge",		CPU_PM_CTRL_GE(1) },
 	{ "mrvl,usb-ehci",	CPU_PM_CTRL_USB(0) },
@@ -351,7 +355,7 @@ uint32_t
 soc_power_ctrl_get(uint32_t mask)
 {
 
-#if !defined(SOC_MV_ORION) && !defined(SOC_MV_LOKIPLUS) && !defined(SOC_MV_FREY)
+#if !defined(SOC_MV_ORION)
 	if (mask != CPU_PM_CTRL_NONE)
 		mask &= read_cpu_ctrl(CPU_PM_CTRL);
 
@@ -369,7 +373,7 @@ void
 soc_power_ctrl_set(uint32_t mask)
 {
 
-#if !defined(SOC_MV_ORION) && !defined(SOC_MV_LOKIPLUS)
+#if !defined(SOC_MV_ORION)
 	if (mask != CPU_PM_CTRL_NONE)
 		write_cpu_ctrl(CPU_PM_CTRL, mask);
 #endif
@@ -561,7 +565,6 @@ soc_decode_win(void)
 		return(err);
 #endif
 
-#ifndef SOC_MV_FREY
 	if (!decode_win_cpu_valid() || !decode_win_usb_valid() ||
 	    !decode_win_eth_valid() || !decode_win_idma_valid() ||
 	    !decode_win_pcie_valid() || !decode_win_sata_valid() ||
@@ -569,13 +572,6 @@ soc_decode_win(void)
 		return (EINVAL);
 
 	decode_win_cpu_setup();
-#else
-	if (!decode_win_usb_valid() ||
-	    !decode_win_eth_valid() || !decode_win_idma_valid() ||
-	    !decode_win_pcie_valid() || !decode_win_sata_valid() ||
-	    !decode_win_xor_valid() || !decode_win_usb3_valid())
-		return (EINVAL);
-#endif
 	if (MV_DUMP_WIN)
 		soc_dump_decode_win();
 
@@ -590,7 +586,6 @@ soc_decode_win(void)
 /**************************************************************************
  * Decode windows registers accessors
  **************************************************************************/
-#if !defined(SOC_MV_FREY)
 WIN_REG_IDX_RD(win_cpu, cr, MV_WIN_CPU_CTRL, MV_MBUS_BRIDGE_BASE)
 WIN_REG_IDX_RD(win_cpu, br, MV_WIN_CPU_BASE, MV_MBUS_BRIDGE_BASE)
 WIN_REG_IDX_RD(win_cpu, remap_l, MV_WIN_CPU_REMAP_LO, MV_MBUS_BRIDGE_BASE)
@@ -599,7 +594,6 @@ WIN_REG_IDX_WR(win_cpu, cr, MV_WIN_CPU_CTRL, MV_MBUS_BRIDGE_BASE)
 WIN_REG_IDX_WR(win_cpu, br, MV_WIN_CPU_BASE, MV_MBUS_BRIDGE_BASE)
 WIN_REG_IDX_WR(win_cpu, remap_l, MV_WIN_CPU_REMAP_LO, MV_MBUS_BRIDGE_BASE)
 WIN_REG_IDX_WR(win_cpu, remap_h, MV_WIN_CPU_REMAP_HI, MV_MBUS_BRIDGE_BASE)
-#endif
 
 WIN_REG_BASE_IDX_RD(win_usb, cr, MV_WIN_USB_CTRL)
 WIN_REG_BASE_IDX_RD(win_usb, br, MV_WIN_USB_BASE)
@@ -660,6 +654,11 @@ WIN_REG_BASE_IDX_RD(win_sata, cr, MV_WIN_SATA_CTRL);
 WIN_REG_BASE_IDX_RD(win_sata, br, MV_WIN_SATA_BASE);
 WIN_REG_BASE_IDX_WR(win_sata, cr, MV_WIN_SATA_CTRL);
 WIN_REG_BASE_IDX_WR(win_sata, br, MV_WIN_SATA_BASE);
+#if defined(SOC_MV_ARMADA38X)
+WIN_REG_BASE_IDX_RD(win_sata, sz, MV_WIN_SATA_SIZE);
+WIN_REG_BASE_IDX_WR(win_sata, sz, MV_WIN_SATA_SIZE);
+#endif
+
 #ifndef SOC_MV_DOVE
 WIN_REG_IDX_RD(ddr, br, MV_WIN_DDR_BASE, MV_DDR_CADR_BASE)
 WIN_REG_IDX_RD(ddr, sz, MV_WIN_DDR_SIZE, MV_DDR_CADR_BASE)
@@ -699,7 +698,6 @@ static inline uint32_t ddr_sz_read(int i)
 }
 #endif
 
-#if !defined(SOC_MV_FREY)
 /**************************************************************************
  * Decode windows helper routines
  **************************************************************************/
@@ -922,7 +920,6 @@ decode_win_cpu_setup(void)
 			    cpu_wins[i].size, cpu_wins[i].remap);
 
 }
-#endif
 
 #ifdef SOC_MV_ARMADAXP
 static int
@@ -1281,11 +1278,7 @@ decode_win_eth_dump(u_long base)
 	    win_eth_epap_read(base));
 }
 
-#if defined(SOC_MV_LOKIPLUS)
-#define MV_WIN_ETH_DDR_TRGT(n)	0
-#else
 #define MV_WIN_ETH_DDR_TRGT(n)	ddr_target(n)
-#endif
 
 static void
 decode_win_eth_setup(u_long base)
@@ -1999,6 +1992,75 @@ decode_win_sata_setup(u_long base)
 		}
 }
 
+#ifdef SOC_MV_ARMADA38X
+/*
+ * Configure AHCI decoding windows
+ */
+static void
+decode_win_ahci_setup(u_long base)
+{
+	uint32_t br, cr, sz;
+	int i, j;
+
+	for (i = 0; i < MV_WIN_SATA_MAX; i++) {
+		win_sata_cr_write(base, i, 0);
+		win_sata_br_write(base, i, 0);
+		win_sata_sz_write(base, i, 0);
+	}
+
+	for (i = 0; i < MV_WIN_DDR_MAX; i++) {
+		if (ddr_is_active(i)) {
+			cr = (ddr_attr(i) << IO_WIN_ATTR_SHIFT) |
+			    (ddr_target(i) << IO_WIN_TGT_SHIFT) |
+			    IO_WIN_ENA_MASK;
+			br = ddr_base(i);
+			sz = (ddr_size(i) - 1) &
+			    (IO_WIN_SIZE_MASK << IO_WIN_SIZE_SHIFT);
+
+			/* Use first available SATA window */
+			for (j = 0; j < MV_WIN_SATA_MAX; j++) {
+				if (win_sata_cr_read(base, j) & IO_WIN_ENA_MASK)
+					continue;
+
+				/* BASE is set to DRAM base (0x00000000) */
+				win_sata_br_write(base, j, br);
+				/* CTRL targets DRAM ctrl with 0x0E or 0x0D */
+				win_sata_cr_write(base, j, cr);
+				/* SIZE is set to 16MB - max value */
+				win_sata_sz_write(base, j, sz);
+				break;
+			}
+		}
+	}
+}
+
+static void
+decode_win_ahci_dump(u_long base)
+{
+	int i;
+
+	for (i = 0; i < MV_WIN_SATA_MAX; i++)
+		printf("SATA window#%d: cr 0x%08x, br 0x%08x, sz 0x%08x\n", i,
+		    win_sata_cr_read(base, i), win_sata_br_read(base, i),
+		    win_sata_sz_read(base,i));
+}
+
+#else
+/*
+ * Provide dummy functions to satisfy the build
+ * for SoC's not equipped with AHCI controller
+ */
+static void
+decode_win_ahci_setup(u_long base)
+{
+}
+
+static void
+decode_win_ahci_dump(u_long base)
+{
+}
+#endif
+
 static int
 decode_win_sata_valid(void)
 {
@@ -2171,6 +2233,10 @@ fdt_win_setup(void)
 		for (i = 0; soc_nodes[i].compat != NULL; i++) {
 
 			soc_node = &soc_nodes[i];
+
+			/* Setup only for enabled devices */
+			if (ofw_bus_node_status_okay(child) == 0)
+				continue;
 
 			if (!ofw_bus_node_is_compatible(child,soc_node->compat))
 				continue;

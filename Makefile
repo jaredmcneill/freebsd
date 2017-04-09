@@ -236,10 +236,10 @@ _MAKE+=	MK_META_MODE=no
 
 # Guess machine architecture from machine type, and vice versa.
 .if !defined(TARGET_ARCH) && defined(TARGET)
-_TARGET_ARCH=	${TARGET:S/pc98/i386/:S/arm64/aarch64/}
+_TARGET_ARCH=	${TARGET:S/arm64/aarch64/}
 .elif !defined(TARGET) && defined(TARGET_ARCH) && \
     ${TARGET_ARCH} != ${MACHINE_ARCH}
-_TARGET=		${TARGET_ARCH:C/mips(n32|64)?(el)?(hf)?/mips/:C/arm(v6)?(eb)?/arm/:C/aarch64/arm64/:C/powerpc64/powerpc/:C/powerpcspe/powerpc/:C/riscv64/riscv/}
+_TARGET=		${TARGET_ARCH:C/mips(n32|64)?(el)?(hf)?/mips/:C/arm(v6)?(eb)?/arm/:C/aarch64/arm64/:C/powerpc64/powerpc/:C/powerpcspe/powerpc/:C/riscv64(sf)?/riscv/}
 .endif
 .if defined(TARGET) && !defined(_TARGET)
 _TARGET=${TARGET}
@@ -417,26 +417,15 @@ worlds: .PHONY
 # existing system is.
 #
 .if make(universe) || make(universe_kernels) || make(tinderbox) || make(targets)
-TARGETS?=amd64 arm arm64 i386 mips pc98 powerpc sparc64
+TARGETS?=amd64 arm arm64 i386 mips powerpc sparc64
 _UNIVERSE_TARGETS=	${TARGETS}
 TARGET_ARCHES_arm?=	arm armeb armv6
 TARGET_ARCHES_arm64?=	aarch64
 TARGET_ARCHES_mips?=	mipsel mips mips64el mips64 mipsn32 mipselhf mipshf mips64elhf mips64hf
 TARGET_ARCHES_powerpc?=	powerpc powerpc64 powerpcspe
-TARGET_ARCHES_pc98?=	i386
 .for target in ${TARGETS}
 TARGET_ARCHES_${target}?= ${target}
 .endfor
-
-# XXX Remove arm64 from universe if the required binutils package is missing.
-# It does not build with the in-tree linker.
-.if !exists(/usr/local/aarch64-freebsd/bin/ld) && ${TARGETS:Marm64}
-_UNIVERSE_TARGETS:= ${_UNIVERSE_TARGETS:Narm64}
-universe: universe_arm64_skip .PHONY
-universe_epilogue: universe_arm64_skip .PHONY
-universe_arm64_skip: universe_prologue .PHONY
-	@echo ">> arm64 skipped - install aarch64-binutils port or package to build"
-.endif
 
 .if defined(UNIVERSE_TARGET)
 MAKE_JUST_WORLDS=	YES

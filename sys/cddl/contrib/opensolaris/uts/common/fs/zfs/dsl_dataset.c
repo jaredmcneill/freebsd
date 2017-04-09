@@ -21,7 +21,7 @@
 /*
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
  * Portions Copyright (c) 2011 Martin Matuska <mm@FreeBSD.org>
- * Copyright (c) 2011, 2015 by Delphix. All rights reserved.
+ * Copyright (c) 2011, 2016 by Delphix. All rights reserved.
  * Copyright (c) 2014, Joyent, Inc. All rights reserved.
  * Copyright (c) 2014 RackTop Systems.
  * Copyright (c) 2014 Spectra Logic Corporation, All rights reserved.
@@ -88,6 +88,8 @@ extern inline dsl_dataset_phys_t *dsl_dataset_phys(dsl_dataset_t *ds);
 
 extern int spa_asize_inflation;
 
+static zil_header_t zero_zil;
+
 /*
  * Figure out how much of this delta should be propogated to the dsl_dir
  * layer.  If there's a refreservation, that space has already been
@@ -132,6 +134,7 @@ dsl_dataset_block_born(dsl_dataset_t *ds, const blkptr_t *bp, dmu_tx_t *tx)
 		return;
 	}
 
+	ASSERT3U(bp->blk_birth, >, dsl_dataset_phys(ds)->ds_prev_snap_txg);
 	dmu_buf_will_dirty(ds->ds_dbuf, tx);
 	mutex_enter(&ds->ds_lock);
 	delta = parent_delta(ds, used);
@@ -276,16 +279,30 @@ dsl_dataset_block_freeable(dsl_dataset_t *ds, const blkptr_t *bp,
 	return (B_TRUE);
 }
 
+/*
+ * We have to release the fsid syncronously or we risk that a subsequent
+ * mount of the same dataset will fail to unique_insert the fsid.  This
+ * failure would manifest itself as the fsid of this dataset changing
+ * between mounts which makes NFS clients quite unhappy.
+ */
 static void
-dsl_dataset_evict(void *dbu)
+dsl_dataset_evict_sync(void *dbu)
+{
+	dsl_dataset_t *ds = dbu;
+
+	ASSERT(ds->ds_owner == NULL);
+
+	unique_remove(ds->ds_fsid_guid);
+}
+
+static void
+dsl_dataset_evict_async(void *dbu)
 {
 	dsl_dataset_t *ds = dbu;
 
 	ASSERT(ds->ds_owner == NULL);
 
 	ds->ds_dbuf = NULL;
-
-	unique_remove(ds->ds_fsid_guid);
 
 	if (ds->ds_objset != NULL)
 		dmu_objset_evict(ds->ds_objset);
@@ -525,7 +542,8 @@ dsl_dataset_hold_obj(dsl_pool_t *dp, uint64_t dsobj, void *tag,
 			ds->ds_reserved = ds->ds_quota = 0;
 		}
 
-		dmu_buf_init_user(&ds->ds_dbu, dsl_dataset_evict, &ds->ds_dbuf);
+		dmu_buf_init_user(&ds->ds_dbu, dsl_dataset_evict_sync,
+		    dsl_dataset_evict_async, &ds->ds_dbuf);
 		if (err == 0)
 			winner = dmu_buf_set_user_ie(dbuf, &ds->ds_dbu);
 
@@ -548,6 +566,16 @@ dsl_dataset_hold_obj(dsl_pool_t *dp, uint64_t dsobj, void *tag,
 		} else {
 			ds->ds_fsid_guid =
 			    unique_insert(dsl_dataset_phys(ds)->ds_fsid_guid);
+			if (ds->ds_fsid_guid !=
+			    dsl_dataset_phys(ds)->ds_fsid_guid) {
+				zfs_dbgmsg("ds_fsid_guid changed from "
+				    "%llx to %llx for pool %s dataset id %llu",
+				    (long long)
+				    dsl_dataset_phys(ds)->ds_fsid_guid,
+				    (long long)ds->ds_fsid_guid,
+				    spa_name(dp->dp_spa),
+				    dsobj);
+			}
 		}
 	}
 	ASSERT3P(ds->ds_dbuf, ==, dbuf);
@@ -902,8 +930,20 @@ dsl_dataset_zero_zil(dsl_dataset_t *ds, dmu_tx_t *tx)
 	objset_t *os;
 
 	VERIFY0(dmu_objset_from_ds(ds, &os));
-	bzero(&os->os_zil_header, sizeof (os->os_zil_header));
-	dsl_dataset_dirty(ds, tx);
+	if (bcmp(&os->os_zil_header, &zero_zil, sizeof (zero_zil)) != 0) {
+		dsl_pool_t *dp = ds->ds_dir->dd_pool;
+		zio_t *zio;
+
+		bzero(&os->os_zil_header, sizeof (os->os_zil_header));
+
+		zio = zio_root(dp->dp_spa, NULL, NULL, ZIO_FLAG_MUSTSUCCEED);
+		dsl_dataset_sync(ds, zio, tx);
+		VERIFY0(zio_wait(zio));
+
+		/* dsl_dataset_sync_done will drop this reference. */
+		dmu_buf_add_ref(ds->ds_dbuf, ds);
+		dsl_dataset_sync_done(ds, tx);
+	}
 }
 
 uint64_t
@@ -1083,8 +1123,10 @@ dsl_dataset_dirty(dsl_dataset_t *ds, dmu_tx_t *tx)
 	if (dsl_dataset_phys(ds)->ds_next_snap_obj != 0)
 		panic("dirtying snapshot!");
 
-	dp = ds->ds_dir->dd_pool;
+	/* Must not dirty a dataset in the same txg where it got snapshotted. */
+	ASSERT3U(tx->tx_txg, >, dsl_dataset_phys(ds)->ds_prev_snap_txg);
 
+	dp = ds->ds_dir->dd_pool;
 	if (txg_list_add(&dp->dp_dirty_datasets, ds, tx->tx_txg)) {
 		/* up the hold count until we can be written out */
 		dmu_buf_add_ref(ds->ds_dbuf, ds);
@@ -1339,8 +1381,6 @@ void
 dsl_dataset_snapshot_sync_impl(dsl_dataset_t *ds, const char *snapname,
     dmu_tx_t *tx)
 {
-	static zil_header_t zero_zil;
-
 	dsl_pool_t *dp = ds->ds_dir->dd_pool;
 	dmu_buf_t *dbuf;
 	dsl_dataset_phys_t *dsphys;
@@ -1358,6 +1398,10 @@ dsl_dataset_snapshot_sync_impl(dsl_dataset_t *ds, const char *snapname,
 	    dmu_objset_from_ds(ds, &os) != 0 ||
 	    bcmp(&os->os_phys->os_zil_header, &zero_zil,
 	    sizeof (zero_zil)) == 0);
+
+	/* Should not snapshot a dirty dataset. */
+	ASSERT(!txg_list_member(&ds->ds_dir->dd_pool->dp_dirty_datasets,
+	    ds, tx->tx_txg));
 
 	dsl_fs_ss_count_adjust(ds->ds_dir, 1, DD_FIELD_SNAPSHOT_COUNT, tx);
 
@@ -1718,6 +1762,27 @@ dsl_dataset_sync(dsl_dataset_t *ds, zio_t *zio, dmu_tx_t *tx)
 	}
 }
 
+static int
+deadlist_enqueue_cb(void *arg, const blkptr_t *bp, dmu_tx_t *tx)
+{
+	dsl_deadlist_t *dl = arg;
+	dsl_deadlist_insert(dl, bp, tx);
+	return (0);
+}
+
+void
+dsl_dataset_sync_done(dsl_dataset_t *ds, dmu_tx_t *tx)
+{
+	objset_t *os = ds->ds_objset;
+
+	bplist_iterate(&ds->ds_pending_deadlist,
+	    deadlist_enqueue_cb, &ds->ds_deadlist, tx);
+
+	ASSERT(!dmu_objset_is_dirty(os, dmu_tx_get_txg(tx)));
+
+	dmu_buf_rele(ds->ds_dbuf, ds);
+}
+
 static void
 get_clones_stat(dsl_dataset_t *ds, nvlist_t *nv)
 {
@@ -1726,9 +1791,20 @@ get_clones_stat(dsl_dataset_t *ds, nvlist_t *nv)
 	zap_cursor_t zc;
 	zap_attribute_t za;
 	nvlist_t *propval = fnvlist_alloc();
-	nvlist_t *val = fnvlist_alloc();
+	nvlist_t *val;
 
 	ASSERT(dsl_pool_config_held(ds->ds_dir->dd_pool));
+
+	/*
+	 * We use nvlist_alloc() instead of fnvlist_alloc() because the
+	 * latter would allocate the list with NV_UNIQUE_NAME flag.
+	 * As a result, every time a clone name is appended to the list
+	 * it would be (linearly) searched for for a duplicate name.
+	 * We already know that all clone names must be unique and we
+	 * want avoid the quadratic complexity of double-checking that
+	 * because we can have a large number of clones.
+	 */
+	VERIFY0(nvlist_alloc(&val, 0, KM_SLEEP));
 
 	/*
 	 * There may be missing entries in ds_next_clones_obj
@@ -2235,6 +2311,18 @@ dsl_dataset_rollback_check(void *arg, dmu_tx_t *tx)
 	if (dsl_dataset_phys(ds)->ds_prev_snap_txg < TXG_INITIAL) {
 		dsl_dataset_rele(ds, FTAG);
 		return (SET_ERROR(EINVAL));
+	}
+
+	/*
+	 * No rollback to a snapshot created in the current txg, because
+	 * the rollback may dirty the dataset and create blocks that are
+	 * not reachable from the rootbp while having a birth txg that
+	 * falls into the snapshot's range.
+	 */
+	if (dmu_tx_is_syncing(tx) &&
+	    dsl_dataset_phys(ds)->ds_prev_snap_txg >= tx->tx_txg) {
+		dsl_dataset_rele(ds, FTAG);
+		return (SET_ERROR(EAGAIN));
 	}
 
 	/* must not have any bookmarks after the most recent snapshot */

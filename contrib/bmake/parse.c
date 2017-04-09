@@ -1,4 +1,4 @@
-/*	$NetBSD: parse.c,v 1.214 2016/04/06 09:57:00 gson Exp $	*/
+/*	$NetBSD: parse.c,v 1.218 2017/03/01 16:39:49 sjg Exp $	*/
 
 /*
  * Copyright (c) 1988, 1989, 1990, 1993
@@ -69,14 +69,14 @@
  */
 
 #ifndef MAKE_NATIVE
-static char rcsid[] = "$NetBSD: parse.c,v 1.214 2016/04/06 09:57:00 gson Exp $";
+static char rcsid[] = "$NetBSD: parse.c,v 1.218 2017/03/01 16:39:49 sjg Exp $";
 #else
 #include <sys/cdefs.h>
 #ifndef lint
 #if 0
 static char sccsid[] = "@(#)parse.c	8.3 (Berkeley) 3/19/94";
 #else
-__RCSID("$NetBSD: parse.c,v 1.214 2016/04/06 09:57:00 gson Exp $");
+__RCSID("$NetBSD: parse.c,v 1.218 2017/03/01 16:39:49 sjg Exp $");
 #endif
 #endif /* not lint */
 #endif
@@ -184,6 +184,7 @@ typedef struct IFile {
 typedef enum {
     Begin,  	    /* .BEGIN */
     Default,	    /* .DEFAULT */
+    DeleteOnError,  /* .DELETE_ON_ERROR */
     End,    	    /* .END */
     dotError,	    /* .ERROR */
     Ignore,	    /* .IGNORE */
@@ -301,6 +302,7 @@ static const struct {
 } parseKeywords[] = {
 { ".BEGIN", 	  Begin,    	0 },
 { ".DEFAULT",	  Default,  	0 },
+{ ".DELETE_ON_ERROR", DeleteOnError, 0 },
 { ".END",   	  End,	    	0 },
 { ".ERROR",   	  dotError,    	0 },
 { ".EXEC",	  Attribute,   	OP_EXEC },
@@ -576,7 +578,11 @@ loadfile(const char *path, int fd)
 
 	/* truncate malloc region to actual length (maybe not useful) */
 	if (lf->len > 0) {
+		/* as for mmap case, ensure trailing \n */
+		if (lf->buf[lf->len - 1] != '\n')
+			lf->len++;
 		lf->buf = bmake_realloc(lf->buf, lf->len);
+		lf->buf[lf->len - 1] = '\n';
 	}
 
 #ifdef HAVE_MMAP
@@ -1334,6 +1340,7 @@ ParseDoDependency(char *line)
 		 *	.BEGIN
 		 *	.END
 		 *	.ERROR
+		 *	.DELETE_ON_ERROR
 		 *	.INTERRUPT  	Are not to be considered the
 		 *			main target.
 		 *  	.NOTPARALLEL	Make only one target at a time.
@@ -1368,6 +1375,9 @@ ParseDoDependency(char *line)
 		    gn->type |= (OP_NOTMAIN|OP_TRANSFORM);
 		    (void)Lst_AtEnd(targets, gn);
 		    DEFAULT = gn;
+		    break;
+		case DeleteOnError:
+		    deleteOnError = TRUE;
 		    break;
 		case NotParallel:
 		    maxJobs = 1;
@@ -1597,7 +1607,8 @@ ParseDoDependency(char *line)
 	    goto out;
 	}
 	*line = '\0';
-    } else if ((specType == NotParallel) || (specType == SingleShell)) {
+    } else if ((specType == NotParallel) || (specType == SingleShell) ||
+	    (specType == DeleteOnError)) {
 	*line = '\0';
     }
 
@@ -1658,7 +1669,7 @@ ParseDoDependency(char *line)
 		    Suff_SetNull(line);
 		    break;
 		case ExObjdir:
-		    Main_SetObjdir(line);
+		    Main_SetObjdir("%s", line);
 		    break;
 		default:
 		    break;
@@ -1858,7 +1869,7 @@ Parse_DoVar(char *line, GNode *ctxt)
      * XXX Rather than counting () and {} we should look for $ and
      * then expand the variable.
      */
-    for (depth = 0, cp = line + 1; depth != 0 || *cp != '='; cp++) {
+    for (depth = 0, cp = line + 1; depth > 0 || *cp != '='; cp++) {
 	if (*cp == '(' || *cp == '{') {
 	    depth++;
 	    continue;

@@ -176,7 +176,7 @@ linprocfs_domeminfo(PFS_FILL_ARGS)
 	 * like unstaticizing it just for linprocfs's sake.
 	 */
 	buffers = 0;
-	cached = vm_cnt.v_cache_count * PAGE_SIZE;
+	cached = vm_cnt.v_inactive_count * PAGE_SIZE;
 
 	sbuf_printf(sb,
 	    "MemTotal: %9lu kB\n"
@@ -1543,6 +1543,8 @@ linprocfs_init(PFS_INIT_ARGS)
 	    NULL, NULL, NULL, PFS_RD);
 	pfs_create_file(dir, "mem", &procfs_doprocmem,
 	    &procfs_attr, &procfs_candebug, NULL, PFS_RDWR|PFS_RAW);
+	pfs_create_file(dir, "mounts", &linprocfs_domtab,
+	    NULL, NULL, NULL, PFS_RD);
 	pfs_create_link(dir, "root", &linprocfs_doprocroot,
 	    NULL, NULL, NULL, 0);
 	pfs_create_file(dir, "stat", &linprocfs_doprocstat,

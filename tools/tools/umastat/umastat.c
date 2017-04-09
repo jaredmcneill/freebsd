@@ -28,10 +28,6 @@
 
 #include <sys/param.h>
 
-#define LIBMEMSTAT	/* Cause vm_page.h not to include opt_vmpage.h */
-#include <vm/vm.h>
-#include <vm/vm_page.h>
-
 #include <vm/uma.h>
 #include <vm/uma_int.h>
 
@@ -378,7 +374,6 @@ main(int argc, char *argv[])
 		printf("  uk_rsize = %d\n", kz.uk_rsize);
 		printf("  uk_maxpages = %d\n", kz.uk_maxpages);
 
-		printf("  uk_slabsize = %d\n", kz.uk_slabsize);
 		printf("  uk_pgoff = %d\n", kz.uk_pgoff);
 		printf("  uk_ppera = %d\n", kz.uk_ppera);
 		printf("  uk_ipers = %d\n", kz.uk_ipers);

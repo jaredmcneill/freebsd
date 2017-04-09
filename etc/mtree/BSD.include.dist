@@ -118,6 +118,8 @@
         ..
         hwpmc
         ..
+        hyperv
+        ..
         ic
         ..
         iicbus
@@ -127,6 +129,8 @@
         lmc
         ..
         mfi
+        ..
+        mmc
         ..
         mpt
             mpilib

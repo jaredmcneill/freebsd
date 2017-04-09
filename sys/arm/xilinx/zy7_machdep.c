@@ -44,8 +44,6 @@ __FBSDID("$FreeBSD$");
 #include <vm/vm.h>
 #include <vm/pmap.h>
 
-#include <dev/fdt/fdt_common.h>
-
 #include <machine/bus.h>
 #include <machine/machdep.h>
 #include <machine/platform.h> 
@@ -93,7 +91,7 @@ platform_devmap_init(void)
 }
 
 void
-cpu_reset()
+cpu_reset(void)
 {
 	if (zynq7_cpu_reset != NULL)
 		(*zynq7_cpu_reset)();

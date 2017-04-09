@@ -426,12 +426,8 @@ page_busy(vnode_t *vp, int64_t start, int64_t off, int64_t nbytes)
 				continue;
 			}
 			vm_page_sbusy(pp);
-		} else if (pp == NULL) {
-			pp = vm_page_alloc(obj, OFF_TO_IDX(start),
-			    VM_ALLOC_SYSTEM | VM_ALLOC_IFCACHED |
-			    VM_ALLOC_SBUSY);
-		} else {
-			ASSERT(pp != NULL && !pp->valid);
+		} else if (pp != NULL) {
+			ASSERT(!pp->valid);
 			pp = NULL;
 		}
 
@@ -1616,27 +1612,34 @@ zfs_lookup(vnode_t *dvp, char *nm, vnode_t **vpp, struct componentname *cnp,
 		 * the vp for the snapshot directory.
 		 */
 		if (zdp->z_id == zfsvfs->z_root && zfsvfs->z_parent != zfsvfs) {
-			error = zfsctl_root_lookup(zfsvfs->z_parent->z_ctldir,
-			    "snapshot", vpp, NULL, 0, NULL, kcred,
-			    NULL, NULL, NULL);
+			struct componentname cn;
+			vnode_t *zfsctl_vp;
+			int ltype;
+
 			ZFS_EXIT(zfsvfs);
+			ltype = VOP_ISLOCKED(dvp);
+			VOP_UNLOCK(dvp, 0);
+			error = zfsctl_root(zfsvfs->z_parent, LK_SHARED,
+			    &zfsctl_vp);
 			if (error == 0) {
-				error = zfs_lookup_lock(dvp, *vpp, nm,
-				    cnp->cn_lkflags);
+				cn.cn_nameptr = "snapshot";
+				cn.cn_namelen = strlen(cn.cn_nameptr);
+				cn.cn_nameiop = cnp->cn_nameiop;
+				cn.cn_flags = cnp->cn_flags;
+				cn.cn_lkflags = cnp->cn_lkflags;
+				error = VOP_LOOKUP(zfsctl_vp, vpp, &cn);
+				vput(zfsctl_vp);
 			}
-			goto out;
+			vn_lock(dvp, ltype | LK_RETRY);
+			return (error);
 		}
 	}
 	if (zfs_has_ctldir(zdp) && strcmp(nm, ZFS_CTLDIR_NAME) == 0) {
-		error = 0;
-		if ((cnp->cn_flags & ISLASTCN) != 0 && nameiop != LOOKUP)
-			error = SET_ERROR(ENOTSUP);
-		else
-			*vpp = zfsctl_root(zdp);
 		ZFS_EXIT(zfsvfs);
-		if (error == 0)
-			error = zfs_lookup_lock(dvp, *vpp, nm, cnp->cn_lkflags);
-		goto out;
+		if ((cnp->cn_flags & ISLASTCN) != 0 && nameiop != LOOKUP)
+			return (SET_ERROR(ENOTSUP));
+		error = zfsctl_root(zfsvfs, cnp->cn_lkflags, vpp);
+		return (error);
 	}
 
 	/*
@@ -2790,15 +2793,6 @@ zfs_getattr(vnode_t *vp, vattr_t *vap, int flags, cred_t *cr,
 			zfs_sa_get_scanstamp(zp, xvap);
 		}
 
-		if (XVA_ISSET_REQ(xvap, XAT_CREATETIME)) {
-			uint64_t times[2];
-
-			(void) sa_lookup(zp->z_sa_hdl, SA_ZPL_CRTIME(zfsvfs),
-			    times, sizeof (times));
-			ZFS_TIME_DECODE(&xoap->xoa_createtime, times);
-			XVA_SET_RTN(xvap, XAT_CREATETIME);
-		}
-
 		if (XVA_ISSET_REQ(xvap, XAT_REPARSE)) {
 			xoap->xoa_reparse = ((zp->z_pflags & ZFS_REPARSE) != 0);
 			XVA_SET_RTN(xvap, XAT_REPARSE);
@@ -2959,6 +2953,11 @@ zfs_setattr(vnode_t *vp, vattr_t *vap, int flags, cred_t *cr,
 			ZFS_EXIT(zfsvfs);
 			return (SET_ERROR(EOVERFLOW));
 		}
+	}
+	if (xoap && (mask & AT_XVATTR) && XVA_ISSET_REQ(xvap, XAT_CREATETIME) &&
+	    TIMESPEC_OVERFLOW(&vap->va_birthtime)) {
+		ZFS_EXIT(zfsvfs);
+		return (SET_ERROR(EOVERFLOW));
 	}
 
 	attrzp = NULL;
@@ -3404,6 +3403,8 @@ zfs_setattr(vnode_t *vp, vattr_t *vap, int flags, cred_t *cr,
 
 	if (xoap && (mask & AT_XVATTR)) {
 
+		if (XVA_ISSET_REQ(xvap, XAT_CREATETIME))
+			xoap->xoa_createtime = vap->va_birthtime;
 		/*
 		 * restore trimmed off masks
 		 * so that return masks can be set for caller.
@@ -4711,19 +4712,13 @@ zfs_putpages(struct vnode *vp, vm_page_t *ma, size_t len, int flags,
 		goto out;
 	}
 
-top:
 	tx = dmu_tx_create(zfsvfs->z_os);
 	dmu_tx_hold_write(tx, zp->z_id, off, len);
 
 	dmu_tx_hold_sa(tx, zp->z_sa_hdl, B_FALSE);
 	zfs_sa_upgrade_txholds(tx, zp);
-	err = dmu_tx_assign(tx, TXG_NOWAIT);
+	err = dmu_tx_assign(tx, TXG_WAIT);
 	if (err != 0) {
-		if (err == ERESTART) {
-			dmu_tx_wait(tx);
-			dmu_tx_abort(tx);
-			goto top;
-		}
 		dmu_tx_abort(tx);
 		goto out;
 	}
@@ -5254,6 +5249,10 @@ zfs_freebsd_setattr(ap)
 		FLAG_CHANGE(UF_SPARSE, ZFS_SPARSE, XAT_SPARSE,
 		    xvap.xva_xoptattrs.xoa_sparse);
 #undef	FLAG_CHANGE
+	}
+	if (vap->va_birthtime.tv_sec != VNOVAL) {
+		xvap.xva_vattr.va_mask |= AT_XVATTR;
+		XVA_SET_REQ(&xvap, XAT_CREATETIME);
 	}
 	return (zfs_setattr(vp, (vattr_t *)&xvap, 0, cred, NULL));
 }
@@ -5866,6 +5865,9 @@ zfs_freebsd_setacl(ap)
 	if (ap->a_type != ACL_TYPE_NFS4)
 		return (EINVAL);
 
+	if (ap->a_aclp == NULL)
+		return (EINVAL);
+
 	if (ap->a_aclp->acl_cnt < 1 || ap->a_aclp->acl_cnt > MAX_ACL_ENTRIES)
 		return (EINVAL);
 
@@ -5941,6 +5943,10 @@ zfs_vptocnp(struct vop_vptocnp_args *ap)
 		error = zfs_znode_parent_and_name(zp, &dzp, name);
 		if (error == 0) {
 			len = strlen(name);
+			if (*ap->a_buflen < len)
+				error = SET_ERROR(ENOMEM);
+		}
+		if (error == 0) {
 			*ap->a_buflen -= len;
 			bcopy(name, ap->a_buf + *ap->a_buflen, len);
 			*ap->a_vpp = ZTOV(dzp);
@@ -5954,7 +5960,7 @@ zfs_vptocnp(struct vop_vptocnp_args *ap)
 	vhold(covered_vp);
 	ltype = VOP_ISLOCKED(vp);
 	VOP_UNLOCK(vp, 0);
-	error = vget(covered_vp, LK_EXCLUSIVE | LK_VNHELD, curthread);
+	error = vget(covered_vp, LK_SHARED | LK_VNHELD, curthread);
 	if (error == 0) {
 		error = VOP_VPTOCNP(covered_vp, ap->a_vpp, ap->a_cred,
 		    ap->a_buf, ap->a_buflen);
@@ -5976,26 +5982,17 @@ zfs_lock(ap)
 		int line;
 	} */ *ap;
 {
-	zfsvfs_t *zfsvfs;
-	znode_t *zp;
 	vnode_t *vp;
-	int flags;
+	znode_t *zp;
 	int err;
 
-	vp = ap->a_vp;
-	flags = ap->a_flags;
-	if ((flags & LK_INTERLOCK) == 0 && (flags & LK_NOWAIT) == 0 &&
-	    (vp->v_iflag & VI_DOOMED) == 0 && (zp = vp->v_data) != NULL &&
-	    (zp->z_pflags & ZFS_XATTR) == 0) {
-		zfsvfs = zp->z_zfsvfs;
-		VERIFY(!RRM_LOCK_HELD(&zfsvfs->z_teardown_lock));
-	}
 	err = vop_stdlock(ap);
-	if ((flags & LK_INTERLOCK) != 0 && (flags & LK_NOWAIT) == 0 &&
-	    (vp->v_iflag & VI_DOOMED) == 0 && (zp = vp->v_data) != NULL &&
-	    (zp->z_pflags & ZFS_XATTR) == 0) {
-		zfsvfs = zp->z_zfsvfs;
-		VERIFY(!RRM_LOCK_HELD(&zfsvfs->z_teardown_lock));
+	if (err == 0 && (ap->a_flags & LK_NOWAIT) == 0) {
+		vp = ap->a_vp;
+		zp = vp->v_data;
+		if (vp->v_mount != NULL && (vp->v_iflag & VI_DOOMED) == 0 &&
+		    zp != NULL && (zp->z_pflags & ZFS_XATTR) == 0)
+			VERIFY(!RRM_LOCK_HELD(&zp->z_zfsvfs->z_teardown_lock));
 	}
 	return (err);
 }
