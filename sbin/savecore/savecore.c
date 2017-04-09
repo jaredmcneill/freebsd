@@ -43,7 +43,7 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 4. Neither the name of the University nor the names of its contributors
+ * 3. Neither the name of the University nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
  *
@@ -478,6 +478,7 @@ DoFile(const char *savedir, const char *device)
 	bool isencrypted, ret;
 
 	bounds = getbounds();
+	dumpkey = NULL;
 	mediasize = 0;
 	status = STATUS_UNKNOWN;
 
@@ -650,7 +651,7 @@ DoFile(const char *savedir, const char *device)
 	}
 
 	if (kdhl.panicstring[0] != '\0')
-		syslog(LOG_ALERT, "reboot after panic: %*s",
+		syslog(LOG_ALERT, "reboot after panic: %.*s",
 		    (int)sizeof(kdhl.panicstring), kdhl.panicstring);
 	else
 		syslog(LOG_ALERT, "reboot");
@@ -816,6 +817,7 @@ nuke:
 	}
 	xo_close_container_h(xostdout, "crashdump");
 	xo_finish_h(xostdout);
+	free(dumpkey);
 	free(temp);
 	close(fd);
 	return;
@@ -824,6 +826,7 @@ closeall:
 	fclose(fp);
 
 closefd:
+	free(dumpkey);
 	free(temp);
 	close(fd);
 }

@@ -129,6 +129,8 @@ CTASSERT(sizeof(struct sigaction32) == 24);
 
 static int freebsd32_kevent_copyout(void *arg, struct kevent *kevp, int count);
 static int freebsd32_kevent_copyin(void *arg, struct kevent *kevp, int count);
+static int freebsd32_user_clock_nanosleep(struct thread *td, clockid_t clock_id,
+    int flags, const struct timespec32 *ua_rqtp, struct timespec32 *ua_rmtp);
 
 void
 freebsd32_rusage_out(const struct rusage *s, struct rusage32 *s32)
@@ -449,59 +451,47 @@ freebsd32_fexecve(struct thread *td, struct freebsd32_fexecve_args *uap)
 int
 freebsd32_mprotect(struct thread *td, struct freebsd32_mprotect_args *uap)
 {
-	struct mprotect_args ap;
+	int prot;
 
-	ap.addr = PTRIN(uap->addr);
-	ap.len = uap->len;
-	ap.prot = uap->prot;
+	prot = uap->prot;
 #if defined(__amd64__)
-	if (i386_read_exec && (ap.prot & PROT_READ) != 0)
-		ap.prot |= PROT_EXEC;
+	if (i386_read_exec && (prot & PROT_READ) != 0)
+		prot |= PROT_EXEC;
 #endif
-	return (sys_mprotect(td, &ap));
+	return (kern_mprotect(td, (uintptr_t)PTRIN(uap->addr), uap->len,
+	    prot));
 }
 
 int
 freebsd32_mmap(struct thread *td, struct freebsd32_mmap_args *uap)
 {
-	struct mmap_args ap;
-	vm_offset_t addr = (vm_offset_t) uap->addr;
-	vm_size_t len	 = uap->len;
-	int prot	 = uap->prot;
-	int flags	 = uap->flags;
-	int fd		 = uap->fd;
-	off_t pos	 = PAIR32TO64(off_t,uap->pos);
+	int prot;
 
+	prot = uap->prot;
 #if defined(__amd64__)
 	if (i386_read_exec && (prot & PROT_READ))
 		prot |= PROT_EXEC;
 #endif
 
-	ap.addr = (void *) addr;
-	ap.len = len;
-	ap.prot = prot;
-	ap.flags = flags;
-	ap.fd = fd;
-	ap.pos = pos;
-
-	return (sys_mmap(td, &ap));
+	return (kern_mmap(td, (uintptr_t)uap->addr, uap->len, prot,
+	    uap->flags, uap->fd, PAIR32TO64(off_t, uap->pos)));
 }
 
 #ifdef COMPAT_FREEBSD6
 int
-freebsd6_freebsd32_mmap(struct thread *td, struct freebsd6_freebsd32_mmap_args *uap)
+freebsd6_freebsd32_mmap(struct thread *td,
+    struct freebsd6_freebsd32_mmap_args *uap)
 {
-	struct freebsd32_mmap_args ap;
+	int prot;
 
-	ap.addr = uap->addr;
-	ap.len = uap->len;
-	ap.prot = uap->prot;
-	ap.flags = uap->flags;
-	ap.fd = uap->fd;
-	ap.pos1 = uap->pos1;
-	ap.pos2 = uap->pos2;
+	prot = uap->prot;
+#if defined(__amd64__)
+	if (i386_read_exec && (prot & PROT_READ))
+		prot |= PROT_EXEC;
+#endif
 
-	return (freebsd32_mmap(td, &ap));
+	return (kern_mmap(td, (uintptr_t)uap->addr, uap->len, prot,
+	    uap->flags, uap->fd, PAIR32TO64(off_t, uap->pos)));
 }
 #endif
 
@@ -663,9 +653,11 @@ freebsd32_kevent(struct thread *td, struct freebsd32_kevent_args *uap)
 {
 	struct timespec32 ts32;
 	struct timespec ts, *tsp;
-	struct kevent_copyops k_ops = { uap,
-					freebsd32_kevent_copyout,
-					freebsd32_kevent_copyin};
+	struct kevent_copyops k_ops = {
+		.arg = uap,
+		.k_copyout = freebsd32_kevent_copyout,
+		.k_copyin = freebsd32_kevent_copyin,
+	};
 	int error;
 
 
@@ -2236,28 +2228,48 @@ ofreebsd32_sigstack(struct thread *td,
 int
 freebsd32_nanosleep(struct thread *td, struct freebsd32_nanosleep_args *uap)
 {
+
+	return (freebsd32_user_clock_nanosleep(td, CLOCK_REALTIME,
+	    TIMER_RELTIME, uap->rqtp, uap->rmtp));
+}
+
+int
+freebsd32_clock_nanosleep(struct thread *td,
+    struct freebsd32_clock_nanosleep_args *uap)
+{
+	int error;
+
+	error = freebsd32_user_clock_nanosleep(td, uap->clock_id, uap->flags,
+	    uap->rqtp, uap->rmtp);
+	return (kern_posix_error(td, error));
+}
+
+static int
+freebsd32_user_clock_nanosleep(struct thread *td, clockid_t clock_id,
+    int flags, const struct timespec32 *ua_rqtp, struct timespec32 *ua_rmtp)
+{
 	struct timespec32 rmt32, rqt32;
 	struct timespec rmt, rqt;
 	int error;
 
-	error = copyin(uap->rqtp, &rqt32, sizeof(rqt32));
+	error = copyin(ua_rqtp, &rqt32, sizeof(rqt32));
 	if (error)
 		return (error);
 
 	CP(rqt32, rqt, tv_sec);
 	CP(rqt32, rqt, tv_nsec);
 
-	if (uap->rmtp &&
-	    !useracc((caddr_t)uap->rmtp, sizeof(rmt), VM_PROT_WRITE))
+	if (ua_rmtp != NULL && (flags & TIMER_ABSTIME) == 0 &&
+	    !useracc(ua_rmtp, sizeof(rmt32), VM_PROT_WRITE))
 		return (EFAULT);
-	error = kern_nanosleep(td, &rqt, &rmt);
-	if (error && uap->rmtp) {
+	error = kern_clock_nanosleep(td, clock_id, flags, &rqt, &rmt);
+	if (error == EINTR && ua_rmtp != NULL && (flags & TIMER_ABSTIME) == 0) {
 		int error2;
 
 		CP(rmt, rmt32, tv_sec);
 		CP(rmt, rmt32, tv_nsec);
 
-		error2 = copyout(&rmt32, uap->rmtp, sizeof(rmt32));
+		error2 = copyout(&rmt32, ua_rmtp, sizeof(rmt32));
 		if (error2)
 			error = error2;
 	}
@@ -2554,30 +2566,18 @@ int
 freebsd32_cpuset_getaffinity(struct thread *td,
     struct freebsd32_cpuset_getaffinity_args *uap)
 {
-	struct cpuset_getaffinity_args ap;
 
-	ap.level = uap->level;
-	ap.which = uap->which;
-	ap.id = PAIR32TO64(id_t,uap->id);
-	ap.cpusetsize = uap->cpusetsize;
-	ap.mask = uap->mask;
-
-	return (sys_cpuset_getaffinity(td, &ap));
+	return (kern_cpuset_getaffinity(td, uap->level, uap->which,
+	    PAIR32TO64(id_t,uap->id), uap->cpusetsize, uap->mask));
 }
 
 int
 freebsd32_cpuset_setaffinity(struct thread *td,
     struct freebsd32_cpuset_setaffinity_args *uap)
 {
-	struct cpuset_setaffinity_args ap;
 
-	ap.level = uap->level;
-	ap.which = uap->which;
-	ap.id = PAIR32TO64(id_t,uap->id);
-	ap.cpusetsize = uap->cpusetsize;
-	ap.mask = uap->mask;
-
-	return (sys_cpuset_setaffinity(td, &ap));
+	return (kern_cpuset_setaffinity(td, uap->level, uap->which,
+	    PAIR32TO64(id_t,uap->id), uap->cpusetsize, uap->mask));
 }
 
 int

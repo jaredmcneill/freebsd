@@ -13,7 +13,7 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 4. Neither the name of the University nor the names of its contributors
+ * 3. Neither the name of the University nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
  *
@@ -1190,7 +1190,7 @@ nfsrpc_setattrrpc(vnode_t vp, struct vattr *vap,
 		return (error);
 	if (nd->nd_flag & (ND_NFSV3 | ND_NFSV4))
 		error = nfscl_wcc_data(nd, vp, rnap, attrflagp, NULL, stuff);
-	if ((nd->nd_flag & ND_NFSV4) && !error)
+	if ((nd->nd_flag & (ND_NFSV4 | ND_NOMOREDATA)) == ND_NFSV4 && !error)
 		error = nfsrv_getattrbits(nd, &attrbits, NULL, NULL);
 	if (!(nd->nd_flag & ND_NFSV3) && !nd->nd_repstat && !error)
 		error = nfscl_postop_attr(nd, rnap, attrflagp, stuff);

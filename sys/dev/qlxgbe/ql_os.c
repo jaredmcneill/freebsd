@@ -735,6 +735,7 @@ ql_alloc_dmabuf_exit:
 void
 ql_free_dmabuf(qla_host_t *ha, qla_dma_t *dma_buf)
 {
+	bus_dmamap_unload(dma_buf->dma_tag, dma_buf->dma_map); 
         bus_dmamem_free(dma_buf->dma_tag, dma_buf->dma_b, dma_buf->dma_map);
         bus_dma_tag_destroy(dma_buf->dma_tag);
 }
@@ -1071,6 +1072,8 @@ qla_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 			ifp->if_capenable ^= IFCAP_VLAN_HWTAGGING;
 		if (mask & IFCAP_VLAN_HWTSO)
 			ifp->if_capenable ^= IFCAP_VLAN_HWTSO;
+		if (mask & IFCAP_LRO)
+			ifp->if_capenable ^= IFCAP_LRO;
 
 		if (!(ifp->if_drv_flags & IFF_DRV_RUNNING))
 			qla_init(ha);
@@ -1495,7 +1498,6 @@ qla_qflush(struct ifnet *ifp)
 
         return;
 }
-
 
 static void
 qla_stop(qla_host_t *ha)

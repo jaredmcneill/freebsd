@@ -16,7 +16,7 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 4. Neither the name of the University nor the names of its contributors
+ * 3. Neither the name of the University nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
  *
@@ -98,11 +98,7 @@ __FBSDID("$FreeBSD$");
 #include <netinet6/ip6_var.h>
 #endif /* INET6 */
 
-
-#ifdef IPSEC
-#include <netipsec/ipsec.h>
-#include <netipsec/key.h>
-#endif /* IPSEC */
+#include <netipsec/ipsec_support.h>
 
 #include <security/mac/mac_framework.h>
 
@@ -305,8 +301,8 @@ in_pcballoc(struct socket *so, struct inpcbinfo *pcbinfo)
 		goto out;
 	mac_inpcb_create(so, inp);
 #endif
-#ifdef IPSEC
-	error = ipsec_init_policy(so, &inp->inp_sp);
+#if defined(IPSEC) || defined(IPSEC_SUPPORT)
+	error = ipsec_init_pcbpolicy(inp);
 	if (error != 0) {
 #ifdef MAC
 		mac_inpcb_destroy(inp);
@@ -332,8 +328,14 @@ in_pcballoc(struct socket *so, struct inpcbinfo *pcbinfo)
 #endif
 	inp->inp_gencnt = ++pcbinfo->ipi_gencnt;
 	refcount_init(&inp->inp_refcount, 1);	/* Reference from inpcbinfo */
+
+	/*
+	 * Routes in inpcb's can cache L2 as well; they are guaranteed
+	 * to be cleaned up.
+	 */
+	inp->inp_route.ro_flags = RT_LLE_CACHE;
 	INP_LIST_WUNLOCK(pcbinfo);
-#if defined(IPSEC) || defined(MAC)
+#if defined(IPSEC) || defined(IPSEC_SUPPORT) || defined(MAC)
 out:
 	if (error != 0) {
 		crfree(inp->inp_cred);
@@ -1284,7 +1286,7 @@ in_pcbfree(struct inpcb *inp)
 	INP_WLOCK_ASSERT(inp);
 
 	/* XXXRW: Do as much as possible here. */
-#ifdef IPSEC
+#if defined(IPSEC) || defined(IPSEC_SUPPORT)
 	if (inp->inp_sp != NULL)
 		ipsec_delete_pcbpolicy(inp);
 #endif
@@ -2352,7 +2354,7 @@ inp_runlock(struct inpcb *inp)
 	INP_RUNLOCK(inp);
 }
 
-#ifdef INVARIANTS
+#ifdef INVARIANT_SUPPORT
 void
 inp_lock_assert(struct inpcb *inp)
 {
@@ -2438,6 +2440,41 @@ so_sototcpcb(struct socket *so)
 	return (sototcpcb(so));
 }
 
+/*
+ * Create an external-format (``xinpcb'') structure using the information in
+ * the kernel-format in_pcb structure pointed to by inp.  This is done to
+ * reduce the spew of irrelevant information over this interface, to isolate
+ * user code from changes in the kernel structure, and potentially to provide
+ * information-hiding if we decide that some of this information should be
+ * hidden from users.
+ */
+void
+in_pcbtoxinpcb(const struct inpcb *inp, struct xinpcb *xi)
+{
+
+	xi->xi_len = sizeof(struct xinpcb);
+	if (inp->inp_socket)
+		sotoxsocket(inp->inp_socket, &xi->xi_socket);
+	else
+		bzero(&xi->xi_socket, sizeof(struct xsocket));
+	bcopy(&inp->inp_inc, &xi->inp_inc, sizeof(struct in_conninfo));
+	xi->inp_gencnt = inp->inp_gencnt;
+	xi->inp_ppcb = inp->inp_ppcb;
+	xi->inp_flow = inp->inp_flow;
+	xi->inp_flowid = inp->inp_flowid;
+	xi->inp_flowtype = inp->inp_flowtype;
+	xi->inp_flags = inp->inp_flags;
+	xi->inp_flags2 = inp->inp_flags2;
+	xi->inp_rss_listen_bucket = inp->inp_rss_listen_bucket;
+	xi->in6p_cksum = inp->in6p_cksum;
+	xi->in6p_hops = inp->in6p_hops;
+	xi->inp_ip_tos = inp->inp_ip_tos;
+	xi->inp_vflag = inp->inp_vflag;
+	xi->inp_ip_ttl = inp->inp_ip_ttl;
+	xi->inp_ip_p = inp->inp_ip_p;
+	xi->inp_ip_minttl = inp->inp_ip_minttl;
+}
+
 #ifdef DDB
 static void
 db_print_indent(int indent)
@@ -2494,6 +2531,10 @@ db_print_inpflags(int inp_flags)
 	}
 	if (inp_flags & INP_RECVDSTADDR) {
 		db_printf("%sINP_RECVDSTADDR", comma ? ", " : "");
+		comma = 1;
+	}
+	if (inp_flags & INP_ORIGDSTADDR) {
+		db_printf("%sINP_ORIGDSTADDR", comma ? ", " : "");
 		comma = 1;
 	}
 	if (inp_flags & INP_HDRINCL) {

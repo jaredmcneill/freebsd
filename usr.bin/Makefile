@@ -6,7 +6,6 @@
 # XXX MISSING:		deroff diction graph learn plot
 #			spell spline struct xsend
 # XXX Use GNU versions: diff ld patch
-# Moved to secure: bdes
 #
 
 SUBDIR=	alias \
@@ -51,6 +50,7 @@ SUBDIR=	alias \
 	fsync \
 	gcore \
 	gencat \
+	getaddrinfo \
 	getconf \
 	getent \
 	getopt \
@@ -237,9 +237,6 @@ SUBDIR.${MK_MAIL}+=	mail
 SUBDIR.${MK_MAIL}+=	msgs
 SUBDIR.${MK_MAKE}+=	bmake
 SUBDIR.${MK_MAN_UTILS}+=	catman
-.if ${MK_MANDOCDB} == "no"	# AND
-SUBDIR.${MK_MAN_UTILS}+=	makewhatis
-.endif
 SUBDIR.${MK_MAN_UTILS}+=	man
 SUBDIR.${MK_NETCAT}+=	nc
 SUBDIR.${MK_NIS}+=	ypcat

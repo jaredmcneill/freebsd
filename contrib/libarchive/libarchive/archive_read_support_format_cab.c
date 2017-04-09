@@ -187,7 +187,7 @@ struct lzx_stream {
 #define CFDATA_cbData		4
 #define CFDATA_cbUncomp		6
 
-static const char *compression_name[] = {
+static const char * const compression_name[] = {
 	"NONE",
 	"MSZIP",
 	"Quantum",
@@ -1495,6 +1495,8 @@ cab_read_ahead_cfdata_deflate(struct archive_read *a, ssize_t *avail)
 
 		/* Cut out a tow-byte MSZIP signature(0x43, 0x4b). */
 		if (mszip > 0) {
+			if (bytes_avail <= 0)
+				goto nomszip;
 			if (bytes_avail <= mszip) {
 				if (mszip == 2) {
 					if (cab->stream.next_in[0] != 0x43)
